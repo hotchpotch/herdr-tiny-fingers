@@ -1,5 +1,4 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
@@ -7,6 +6,7 @@ use ratatui::Frame;
 use crate::app::App;
 use crate::hints::HintTarget;
 use crate::patterns::Match;
+use crate::theme::Theme;
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
@@ -26,9 +26,11 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         height: 1,
     };
     let message = app.message.as_deref().unwrap_or("");
+    let mode = if app.multi_mode { "multi" } else { "copy" };
     let text = format!(
-        " herdr-tiny-fingers  hints: {}  input: {}  {}  esc/ctrl-c: close ",
+        " herdr-tiny-fingers  mode: {mode}  hints: {}  selected: {}  input: {}  {}  tab: multi/copy  esc/ctrl-c: close ",
         app.visible_target_count(),
+        app.selected_target_count(),
         if app.input.is_empty() {
             "-"
         } else {
@@ -37,7 +39,7 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         message
     );
     frame.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::Black).bg(Color::Yellow)),
+        Paragraph::new(text).style(app.theme.status_style()),
         status_area,
     );
 }
@@ -46,14 +48,23 @@ pub fn render_lines(app: &App, max_lines: usize) -> Vec<Line<'static>> {
     if app.targets.is_empty() {
         return vec![Line::from(vec![Span::styled(
             "No tmux-fingers built-in pattern matches on this visible screen.",
-            Style::default().fg(Color::Yellow),
+            app.theme.empty_style(),
         )])];
     }
     app.lines
         .iter()
         .enumerate()
         .take(max_lines)
-        .map(|(row, line)| render_line(row, line, &app.targets, &app.input))
+        .map(|(row, line)| {
+            render_line_with_selection(
+                row,
+                line,
+                &app.targets,
+                &app.input,
+                &app.selected_hints,
+                &app.theme,
+            )
+        })
         .collect()
 }
 
@@ -62,6 +73,17 @@ pub fn render_line(
     line: &str,
     targets: &[HintTarget<Match>],
     input: &str,
+) -> Line<'static> {
+    render_line_with_selection(row, line, targets, input, &[], &Theme::default())
+}
+
+fn render_line_with_selection(
+    row: usize,
+    line: &str,
+    targets: &[HintTarget<Match>],
+    input: &str,
+    selected_hints: &[String],
+    theme: &Theme,
 ) -> Line<'static> {
     let line_chars = line.chars().collect::<Vec<_>>();
     let mut spans = Vec::new();
@@ -91,6 +113,9 @@ pub fn render_line(
     });
 
     for target in row_targets {
+        let selected = selected_hints
+            .iter()
+            .any(|selected_hint| selected_hint == &target.hint);
         let Some((full_start, full_end)) = row_segment(
             row,
             &target.target.full_start,
@@ -124,7 +149,7 @@ pub fn render_line(
         let Some((capture_start, capture_end)) = capture_segment else {
             spans.push(Span::styled(
                 chars_to_string(&line_chars[full_start..full_end]),
-                Style::default().fg(Color::Cyan),
+                theme.match_style(selected),
             ));
             col = full_end;
             continue;
@@ -132,35 +157,32 @@ pub fn render_line(
         if full_start < capture_start {
             spans.push(Span::styled(
                 chars_to_string(&line_chars[full_start..capture_start]),
-                Style::default().fg(Color::Cyan),
+                theme.match_style(selected),
             ));
         }
         if row == target.target.start.row {
             let hint_width = target.hint.chars().count();
             spans.push(Span::styled(
                 target.hint.clone(),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
+                theme.hint_style(selected),
             ));
             let highlight_start = capture_start.saturating_add(hint_width);
             if highlight_start < capture_end {
                 spans.push(Span::styled(
                     chars_to_string(&line_chars[highlight_start..capture_end]),
-                    Style::default().fg(Color::Black).bg(Color::Cyan),
+                    theme.match_style(selected),
                 ));
             }
         } else {
             spans.push(Span::styled(
                 chars_to_string(&line_chars[capture_start..capture_end]),
-                Style::default().fg(Color::Black).bg(Color::Cyan),
+                theme.match_style(selected),
             ));
         }
         if capture_end < full_end {
             spans.push(Span::styled(
                 chars_to_string(&line_chars[capture_end..full_end]),
-                Style::default().fg(Color::Cyan),
+                theme.match_style(selected),
             ));
         }
         col = full_end;
@@ -206,6 +228,7 @@ fn _block() -> Block<'static> {
 mod tests {
     use crate::app::App;
     use crate::patterns::Matcher;
+    use ratatui::style::Color;
 
     use super::*;
 
@@ -260,5 +283,28 @@ mod tests {
         assert_eq!(second, "mple.com now");
         assert_eq!(first.chars().count(), app.lines[0].chars().count());
         assert_eq!(second.chars().count(), app.lines[1].chars().count());
+    }
+
+    #[test]
+    fn render_selected_hint_with_selected_style() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234", &matcher);
+        app.targets[0].hint = "a".to_string();
+
+        let line = render_line_with_selection(
+            0,
+            &app.lines[0],
+            &app.targets,
+            "",
+            &["a".to_string()],
+            &app.theme,
+        );
+        let hint = line
+            .spans
+            .iter()
+            .find(|span| span.content.as_ref() == "a")
+            .unwrap();
+
+        assert_eq!(hint.style.bg, Some(Color::Magenta));
     }
 }

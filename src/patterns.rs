@@ -1,3 +1,4 @@
+use anyhow::{bail, Result};
 use regex::Regex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,20 +130,29 @@ pub struct Matcher {
 }
 
 impl Matcher {
-    pub fn builtin() -> Result<Self, regex::Error> {
+    pub fn builtin() -> Result<Self> {
         Self::new(BUILTIN_PATTERNS.iter().map(PatternSpec::from))
     }
 
-    pub fn with_custom(custom_patterns: Vec<PatternSpec>) -> Result<Self, regex::Error> {
+    pub fn with_custom(custom_patterns: Vec<PatternSpec>) -> Result<Self> {
+        Self::with_builtin_patterns(None, custom_patterns)
+    }
+
+    pub fn with_builtin_patterns(
+        enabled_builtin_patterns: Option<&[String]>,
+        custom_patterns: Vec<PatternSpec>,
+    ) -> Result<Self> {
         let patterns = BUILTIN_PATTERNS
             .iter()
+            .filter(|pattern| builtin_pattern_enabled(pattern.name, enabled_builtin_patterns))
             .map(PatternSpec::from)
             .chain(custom_patterns)
             .collect::<Vec<_>>();
+        validate_builtin_pattern_names(enabled_builtin_patterns)?;
         Self::new(patterns)
     }
 
-    pub fn new(patterns: impl IntoIterator<Item = PatternSpec>) -> Result<Self, regex::Error> {
+    pub fn new(patterns: impl IntoIterator<Item = PatternSpec>) -> Result<Self> {
         let patterns = patterns
             .into_iter()
             .map(|pattern| {
@@ -179,6 +189,27 @@ impl Matcher {
         matches.sort_by_key(|m| (m.full_start_index, std::cmp::Reverse(m.full_end_index)));
         dedupe_overlaps(matches)
     }
+}
+
+fn builtin_pattern_enabled(name: &str, enabled_builtin_patterns: Option<&[String]>) -> bool {
+    enabled_builtin_patterns
+        .map(|names| names.iter().any(|enabled_name| enabled_name == name))
+        .unwrap_or(true)
+}
+
+fn validate_builtin_pattern_names(enabled_builtin_patterns: Option<&[String]>) -> Result<()> {
+    let Some(enabled_builtin_patterns) = enabled_builtin_patterns else {
+        return Ok(());
+    };
+    let unknown = enabled_builtin_patterns.iter().find(|name| {
+        !BUILTIN_PATTERNS
+            .iter()
+            .any(|pattern| pattern.name == name.as_str())
+    });
+    if let Some(name) = unknown {
+        bail!("unknown builtin pattern '{name}'");
+    }
+    Ok(())
 }
 
 struct FlatText {
@@ -460,5 +491,26 @@ Your branch is up to date with 'origin/crystal-rewrite'.
 
         assert!(texts.contains(&"https://example.com".to_string()));
         assert!(texts.contains(&"192.168.0.1".to_string()));
+    }
+
+    #[test]
+    fn matcher_can_enable_only_named_builtin_patterns() {
+        let matcher =
+            Matcher::with_builtin_patterns(Some(&["url".to_string()]), Vec::new()).unwrap();
+        let lines = vec!["12345 https://example.com".to_string()];
+        let hits = matcher.find(&lines);
+
+        assert_eq!(
+            hits.into_iter().map(|hit| hit.text).collect::<Vec<_>>(),
+            ["https://example.com"]
+        );
+    }
+
+    #[test]
+    fn matcher_rejects_unknown_builtin_pattern_names() {
+        let err =
+            Matcher::with_builtin_patterns(Some(&["missing".to_string()]), Vec::new()).unwrap_err();
+
+        assert!(err.to_string().contains("missing"));
     }
 }

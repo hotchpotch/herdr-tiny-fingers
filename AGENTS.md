@@ -63,8 +63,8 @@ description = "fingers mode"
   already forwards OSC 52 clipboard writes from plugin panes to the foreground
   client.
 - Keep the implementation intentionally small. This is not a full tmux-fingers
-  port; alternate actions, multi-select, jump mode, and style configuration are
-  out of scope unless explicitly requested.
+  port; alternate actions and jump mode are out of scope unless explicitly
+  requested.
 - Matching may ignore pane line breaks for wrap-friendly patterns, but rendering
   must keep the original visible pane lines and avoid changing line widths.
 - Do not commit `target/`, runtime logs, or local editor files.

@@ -9,6 +9,9 @@ This plugin opens an overlay pane, reads the previously focused pane with
 letter hints. Type the hint to copy the matched text through Herdr's OSC 52
 clipboard forwarding.
 
+Press `Tab` in fingers mode to enter multi mode. Select multiple hints, then
+press `Tab` again to copy the selected matches joined by newlines.
+
 ## Keybinding
 
 Herdr plugin manifests do not install keybindings, so bind the action in your
@@ -52,8 +55,25 @@ line break.
 
 Add Rust regular expressions to the plugin config file:
 
+```bash
+herdr plugin config-dir hotchpotch.herdr-tiny-fingers
+```
+
 ```toml
 # $HERDR_PLUGIN_CONFIG_DIR/config.toml
+enabled_builtin_patterns = ["url", "sha", "git-status", "git-status-branch"]
+
+[style]
+hint_fg = "black"
+hint_bg = "yellow"
+match_fg = "yellow"
+selected_hint_fg = "white"
+selected_hint_bg = "magenta"
+selected_match_fg = "white"
+selected_match_bg = "magenta"
+status_fg = "black"
+status_bg = "gray"
+
 [[patterns]]
 name = "ticket"
 regex = "PROJ-[0-9]+"
@@ -66,6 +86,15 @@ regex = "env=(?P<match>[a-z0-9_-]+)"
 Multiple `[[patterns]]` entries are supported. If a pattern defines a named
 `match` capture, only that capture is copied; otherwise the full regex match is
 copied. Custom patterns also ignore pane line breaks while matching.
+
+Omit `enabled_builtin_patterns` to enable all built-in patterns. Set it to a
+list of built-in pattern names to reduce noisy matches on busy panes.
+
+Style colors are optional. Supported names are `black`, `red`, `green`,
+`yellow`, `blue`, `magenta`, `cyan`, `gray`, `dark-gray`, `light-red`,
+`light-green`, `light-yellow`, `light-blue`, `light-magenta`, `light-cyan`,
+and `white`; `#RRGGBB` values are also accepted. `match_bg` can be omitted to
+highlight matches with foreground color only.
 
 ## Development
 

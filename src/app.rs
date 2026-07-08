@@ -1,5 +1,6 @@
 use crate::hints::{assign_hints, HintTarget};
 use crate::patterns::{Match, Matcher};
+use crate::theme::Theme;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -14,10 +15,17 @@ pub struct App {
     pub targets: Vec<HintTarget<Match>>,
     pub input: String,
     pub message: Option<String>,
+    pub multi_mode: bool,
+    pub selected_hints: Vec<String>,
+    pub theme: Theme,
 }
 
 impl App {
     pub fn from_text(text: &str, matcher: &Matcher) -> Self {
+        Self::from_text_with_theme(text, matcher, Theme::default())
+    }
+
+    pub fn from_text_with_theme(text: &str, matcher: &Matcher, theme: Theme) -> Self {
         let lines = split_visible_text(text);
         let targets = matcher
             .find(&lines)
@@ -29,6 +37,9 @@ impl App {
             targets: assign_hints(targets),
             input: String::new(),
             message: None,
+            multi_mode: false,
+            selected_hints: Vec::new(),
+            theme,
         }
     }
 
@@ -40,6 +51,9 @@ impl App {
             self.input.pop();
             self.message = None;
             return Outcome::Continue;
+        }
+        if ch == '\t' {
+            return self.handle_tab();
         }
         if !ch.is_ascii_alphabetic() {
             return Outcome::Continue;
@@ -54,6 +68,12 @@ impl App {
 
         if let Some(target) = exact {
             if !has_longer {
+                if self.multi_mode {
+                    self.toggle_selected_hint(target.hint.clone());
+                    self.input.clear();
+                    self.message = None;
+                    return Outcome::Continue;
+                }
                 return Outcome::Copy(target.target.text.clone());
             }
         }
@@ -71,6 +91,46 @@ impl App {
         Outcome::Continue
     }
 
+    fn handle_tab(&mut self) -> Outcome {
+        if !self.multi_mode {
+            self.multi_mode = true;
+            self.input.clear();
+            self.message = Some("multi mode".to_string());
+            return Outcome::Continue;
+        }
+
+        if self.selected_hints.is_empty() {
+            self.message = Some("multi mode: no selections".to_string());
+            return Outcome::Continue;
+        }
+
+        Outcome::Copy(self.selected_text().join("\n"))
+    }
+
+    fn toggle_selected_hint(&mut self, hint: String) {
+        if let Some(index) = self
+            .selected_hints
+            .iter()
+            .position(|selected_hint| selected_hint == &hint)
+        {
+            self.selected_hints.remove(index);
+        } else {
+            self.selected_hints.push(hint);
+        }
+    }
+
+    fn selected_text(&self) -> Vec<String> {
+        self.selected_hints
+            .iter()
+            .filter_map(|hint| {
+                self.targets
+                    .iter()
+                    .find(|target| &target.hint == hint)
+                    .map(|target| target.target.text.clone())
+            })
+            .collect()
+    }
+
     pub fn visible_target_count(&self) -> usize {
         if self.input.is_empty() {
             return self.targets.len();
@@ -79,6 +139,16 @@ impl App {
             .iter()
             .filter(|target| target.hint.starts_with(&self.input))
             .count()
+    }
+
+    pub fn selected_target_count(&self) -> usize {
+        self.selected_hints.len()
+    }
+
+    pub fn is_selected_hint(&self, hint: &str) -> bool {
+        self.selected_hints
+            .iter()
+            .any(|selected_hint| selected_hint == hint)
     }
 }
 
@@ -140,5 +210,37 @@ mod tests {
         }
 
         assert_eq!(outcome, Outcome::Copy("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn tab_toggles_multi_mode_and_copies_selected_matches() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234 5678", &matcher);
+        app.targets[0].hint = "a".to_string();
+        app.targets[1].hint = "s".to_string();
+
+        assert_eq!(app.handle_char('\t'), Outcome::Continue);
+        assert!(app.multi_mode);
+        assert_eq!(app.handle_char('a'), Outcome::Continue);
+        assert_eq!(app.handle_char('s'), Outcome::Continue);
+        assert_eq!(app.selected_target_count(), 2);
+
+        assert_eq!(
+            app.handle_char('\t'),
+            Outcome::Copy("1234\n5678".to_string())
+        );
+    }
+
+    #[test]
+    fn multi_mode_can_toggle_a_selected_match_off() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234 5678", &matcher);
+        app.targets[0].hint = "a".to_string();
+
+        assert_eq!(app.handle_char('\t'), Outcome::Continue);
+        assert_eq!(app.handle_char('a'), Outcome::Continue);
+        assert_eq!(app.handle_char('a'), Outcome::Continue);
+
+        assert_eq!(app.selected_target_count(), 0);
     }
 }
