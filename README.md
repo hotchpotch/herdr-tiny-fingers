@@ -15,9 +15,6 @@ https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
 
 - Detects file paths, Git SHAs, numbers, IP addresses, UUIDs, URLs, Kubernetes
   names, Git status paths, and diff paths.
-
-
-
 - Opens as an overlay pane on top of the focused Herdr pane.
 - Copies selected text to the clipboard.
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
