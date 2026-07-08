@@ -95,17 +95,43 @@ impl Drop for TerminalRestore {
 }
 
 fn key_to_char(key: KeyEvent) -> Option<char> {
+    match key.code {
+        KeyCode::Tab | KeyCode::BackTab => return Some('\t'),
+        KeyCode::Char('\t') => return Some('\t'),
+        _ => {}
+    }
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char('c') | KeyCode::Char('C') => return Some('\u{3}'),
+            KeyCode::Char('i') | KeyCode::Char('I') => return Some('\t'),
             _ => return None,
         }
     }
     match key.code {
         KeyCode::Esc => Some('\u{1b}'),
         KeyCode::Backspace => Some('\u{7f}'),
-        KeyCode::Tab => Some('\t'),
         KeyCode::Char(ch) => Some(ch),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_tab_key_to_tab_character() {
+        assert_eq!(
+            key_to_char(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            Some('\t')
+        );
+    }
+
+    #[test]
+    fn converts_control_i_to_tab_character() {
+        assert_eq!(
+            key_to_char(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL)),
+            Some('\t')
+        );
     }
 }

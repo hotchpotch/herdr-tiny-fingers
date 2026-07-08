@@ -27,8 +27,9 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     let message = app.message.as_deref().unwrap_or("");
     let mode = if app.multi_mode { "multi" } else { "copy" };
-    let text = format!(
-        " herdr-tiny-fingers  mode: {mode}  hints: {}  selected: {}  input: {}  {}  tab: multi/copy  esc/ctrl-c: close ",
+    let text = status_text(
+        usize::from(status_area.width),
+        mode,
         app.visible_target_count(),
         app.selected_target_count(),
         if app.input.is_empty() {
@@ -36,12 +37,43 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         } else {
             &app.input
         },
-        message
+        message,
     );
     frame.render_widget(
         Paragraph::new(text).style(app.theme.status_style()),
         status_area,
     );
+}
+
+fn status_text(
+    width: usize,
+    mode: &str,
+    target_count: usize,
+    selected_count: usize,
+    input: &str,
+    message: &str,
+) -> String {
+    let variants = [
+        format!(
+            " fingers  {mode}  targets:{target_count}  selected:{selected_count}  input:{input}  {message}  tab:multi/copy  esc:close "
+        ),
+        format!(
+            " fingers  {mode}  targets:{target_count}  selected:{selected_count}  input:{input}  {message}"
+        ),
+        format!(" fingers  {mode}  sel:{selected_count}  in:{input}  {message}"),
+        format!(" fingers {mode} s:{selected_count} i:{input}"),
+        format!(" {mode} s:{selected_count}"),
+    ];
+
+    let text = variants
+        .into_iter()
+        .find(|candidate| candidate.chars().count() <= width)
+        .unwrap_or_else(|| " fingers ".to_string());
+    truncate_to_width(text, width)
+}
+
+fn truncate_to_width(text: String, width: usize) -> String {
+    text.chars().take(width).collect()
 }
 
 pub fn render_lines(app: &App, max_lines: usize) -> Vec<Line<'static>> {
@@ -306,5 +338,31 @@ mod tests {
             .unwrap();
 
         assert_eq!(hint.style.bg, Some(Color::Magenta));
+    }
+
+    #[test]
+    fn status_text_keeps_help_when_width_allows() {
+        let text = status_text(100, "multi", 12, 2, "-", "");
+
+        assert!(text.contains("tab:multi/copy"));
+        assert!(text.contains("esc:close"));
+        assert!(text.chars().count() <= 100);
+    }
+
+    #[test]
+    fn status_text_drops_help_when_width_is_tight() {
+        let text = status_text(45, "multi", 12, 2, "a", "no hint starts with z");
+
+        assert!(!text.contains("tab:multi/copy"));
+        assert!(!text.contains("esc:close"));
+        assert!(text.contains("multi"));
+        assert!(text.chars().count() <= 45);
+    }
+
+    #[test]
+    fn status_text_fits_very_narrow_widths() {
+        let text = status_text(8, "copy", 12, 0, "-", "");
+
+        assert!(text.chars().count() <= 8);
     }
 }
