@@ -11,6 +11,12 @@ pub struct SocketClient {
     next_id: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationResult {
+    pub shown: bool,
+    pub reason: String,
+}
+
 impl SocketClient {
     pub fn connect(socket_path: &Path) -> Result<Self> {
         UnixStream::connect(socket_path).with_context(|| {
@@ -43,6 +49,23 @@ impl SocketClient {
             .as_str()
             .unwrap_or_default()
             .to_string())
+    }
+
+    pub fn show_notification(&mut self, title: &str) -> Result<NotificationResult> {
+        let result = self.call(
+            "notification.show",
+            json!({
+                "title": title
+            }),
+        )?;
+        let actual_type = result["type"].as_str().unwrap_or("<missing>");
+        if actual_type != "notification_show" {
+            bail!("expected notification_show result, got {actual_type}");
+        }
+        Ok(NotificationResult {
+            shown: result["shown"].as_bool().unwrap_or(false),
+            reason: result["reason"].as_str().unwrap_or("unknown").to_string(),
+        })
     }
 
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -84,4 +107,55 @@ pub fn context_focused_pane_id() -> Option<String> {
         .get("focused_pane_id")?
         .as_str()
         .map(ToString::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn show_notification_sends_notification_show_request() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_path = std::path::PathBuf::from(format!("/tmp/htf-{unique}.sock"));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let (_probe_stream, _) = listener.accept().unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+
+            let mut request = String::new();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            reader.read_line(&mut request).unwrap();
+            let json: Value = serde_json::from_str(&request).unwrap();
+
+            assert_eq!(json["id"], "1");
+            assert_eq!(json["method"], "notification.show");
+            assert_eq!(json["params"]["title"], "Copied: README.md");
+
+            stream
+                .write_all(
+                    br#"{"id":"1","result":{"type":"notification_show","shown":true,"reason":"shown"}}"#,
+                )
+                .unwrap();
+            stream.write_all(b"\n").unwrap();
+        });
+
+        let mut client = SocketClient::connect(&socket_path).unwrap();
+        let result = client.show_notification("Copied: README.md").unwrap();
+        assert_eq!(
+            result,
+            NotificationResult {
+                shown: true,
+                reason: "shown".to_string()
+            }
+        );
+        handle.join().unwrap();
+        let _ = std::fs::remove_file(socket_path);
+    }
 }

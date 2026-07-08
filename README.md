@@ -12,6 +12,10 @@ clipboard forwarding.
 Press `Tab` in fingers mode to enter multi mode. Select multiple hints, then
 press `Tab` again to copy the selected matches joined by newlines.
 
+After copying, the plugin can show a Herdr toast such as
+`Copied: README.md`. Long copied text is truncated after 15 characters in the
+toast.
+
 ## Keybinding
 
 Herdr plugin manifests do not install keybindings, so bind the action in your
@@ -26,6 +30,26 @@ description = "fingers mode"
 ```
 
 This is the Herdr spelling for tmux-style `prefix + f`.
+
+## Copy Toast
+
+Herdr notification toasts are controlled by the user's Herdr config, not the
+plugin config. To show the copied text after selection, enable Herdr's in-app
+toast delivery:
+
+```toml
+[ui.toast]
+delivery = "herdr"
+```
+
+Reload the Herdr config after changing it:
+
+```bash
+herdr server reload-config
+```
+
+If `delivery` is omitted or set to `off`, copying still works but the copied
+text toast is not shown.
 
 ## Patterns
 

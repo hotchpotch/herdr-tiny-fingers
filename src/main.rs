@@ -69,8 +69,26 @@ fn run() -> Result<()> {
 
     if let Outcome::Copy(text) = outcome {
         copy_to_clipboard(&text)?;
+        match client.show_notification(&copy_notification_title(&text)) {
+            Ok(result) if !result.shown => {
+                log_state(&format!("notification_not_shown reason={}", result.reason));
+            }
+            Ok(_) => {}
+            Err(err) => {
+                log_state(&format!("notification_error: {err:#}"));
+            }
+        }
     }
     Ok(())
+}
+
+fn copy_notification_title(text: &str) -> String {
+    let mut chars = text.chars();
+    let mut preview = chars.by_ref().take(15).collect::<String>();
+    if chars.next().is_some() {
+        preview.push_str("...");
+    }
+    format!("Copied: {preview}")
 }
 
 fn log_state(message: &str) {
@@ -118,6 +136,35 @@ fn key_to_char(key: KeyEvent) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copy_notification_title_includes_short_text() {
+        assert_eq!(copy_notification_title("README.md"), "Copied: README.md");
+    }
+
+    #[test]
+    fn copy_notification_title_does_not_truncate_fifteen_characters() {
+        assert_eq!(
+            copy_notification_title("123456789012345"),
+            "Copied: 123456789012345"
+        );
+    }
+
+    #[test]
+    fn copy_notification_title_truncates_after_fifteen_characters() {
+        assert_eq!(
+            copy_notification_title("1234567890123456"),
+            "Copied: 123456789012345..."
+        );
+    }
+
+    #[test]
+    fn copy_notification_title_truncates_by_characters() {
+        assert_eq!(
+            copy_notification_title("あいうえおかきくけこさしすせそた"),
+            "Copied: あいうえおかきくけこさしすせそ..."
+        );
+    }
 
     #[test]
     fn converts_tab_key_to_tab_character() {
