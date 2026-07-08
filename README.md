@@ -1,25 +1,37 @@
 # herdr-tiny-fingers
 
-`herdr-tiny-fingers` is a tmux-fingers-like tool for quickly using file paths,
-SHAs, numbers, IP addresses, UUIDs, URLs, and other useful text shown in a
-Herdr pane.
+`herdr-tiny-fingers` is a
+[`tmux-fingers`](https://github.com/Morantron/tmux-fingers)-like Herdr plugin.
+It finds useful text already visible in the focused Herdr pane, puts short hint
+labels on each match, and lets you copy a match by typing its hint.
 
-This plugin opens an overlay pane, reads the previously focused pane with
-`pane.read --source visible`, redraws that screen, and labels matches with
-letter hints. Type the hint to copy the matched text through Herdr's OSC 52
-clipboard forwarding.
+This is intentionally not a full `tmux-fingers` port. It implements the subset
+of `tmux-fingers` that is sufficient for my Herdr workflow.
 
-Press `Tab` in fingers mode to enter multi mode. Select multiple hints, then
-press `Tab` again to copy the selected matches joined by newlines.
+## Features
 
-After copying, the plugin can show a Herdr toast such as
-`Copied: README.md`. Long copied text is truncated after 15 characters in the
-toast.
+- Detects file paths, Git SHAs, numbers, IP addresses, UUIDs, URLs, Kubernetes
+  names, Git status paths, and diff paths.
+- Opens as an overlay pane on top of the focused Herdr pane.
+- Copies selected text to the clipboard.
+- Supports multi-select with `Tab`: enter multi mode, select hints, then press
+  `Tab` again to copy selections joined by newlines.
+- Supports custom Rust regex patterns in the plugin config.
+- Ignores pane line breaks for wrap-friendly matches, so wrapped URLs can copy
+  without the inserted terminal newline.
+- Supports configurable hint, match, selected-match, and status colors.
+- Can show an optional Herdr toast with the copied text, truncated after 15
+  characters.
 
-## Keybinding
+## Quickstart
 
-Herdr plugin manifests do not install keybindings, so bind the action in your
-Herdr config:
+Install the plugin from GitHub:
+
+```bash
+herdr plugin install hotchpotch/herdr-tiny-fingers
+```
+
+Add a keybinding to your Herdr config:
 
 ```toml
 [[keys.command]]
@@ -29,7 +41,14 @@ command = "hotchpotch.herdr-tiny-fingers.open"
 description = "fingers mode"
 ```
 
-This is the Herdr spelling for tmux-style `prefix + f`.
+Reload Herdr:
+
+```bash
+herdr server reload-config
+```
+
+Then press `prefix+f` in Herdr to open fingers mode. Type a hint to copy the
+matched text.
 
 ## Copy Toast
 
@@ -127,6 +146,16 @@ cargo test
 cargo build --release --locked
 herdr plugin link .
 ```
+
+## Technical Notes
+
+The plugin opens an overlay pane, reads the previously focused pane through
+Herdr's socket API with `pane.read` and `source = "visible"`, redraws the
+visible text, and overlays hint labels on detected matches.
+
+Clipboard writes use OSC 52 so Herdr can forward the copied text from the
+plugin pane to the foreground client. Copy notifications use Herdr's
+`notification.show` socket API and follow the user's `[ui.toast]` settings.
 
 ## Acknowledgements
 
