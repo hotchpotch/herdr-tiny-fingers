@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.85"
 description = "tmux-fingers style copy hints for Herdr"
 license = "MIT"
+authors = ["Yuichi Tateno (@hotchpotch)"]
 
 [[bin]]
 name = "herdr-tiny-fingers"
@@ -16,7 +17,9 @@ base64 = "0.22"
 crossterm = "0.29"
 ratatui = "0.30"
 regex = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 
 [dev-dependencies]
 pretty_assertions = "1"

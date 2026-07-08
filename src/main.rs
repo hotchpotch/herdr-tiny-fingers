@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use herdr_tiny_fingers::app::{App, Outcome};
 use herdr_tiny_fingers::clipboard::copy_to_clipboard;
+use herdr_tiny_fingers::config::load_custom_patterns;
 use herdr_tiny_fingers::herdr_client::{context_focused_pane_id, SocketClient};
 use herdr_tiny_fingers::patterns::Matcher;
 
@@ -26,10 +27,13 @@ fn run() -> Result<()> {
         .context("HERDR_PLUGIN_CONTEXT_JSON did not include focused_pane_id")?;
     let mut client = SocketClient::connect(Path::new(&socket_path))?;
     let text = client.read_visible_pane(&pane_id)?;
-    let matcher = Matcher::builtin()?;
+    let config_dir = std::env::var_os("HERDR_PLUGIN_CONFIG_DIR");
+    let custom_patterns = load_custom_patterns(config_dir.as_deref().map(Path::new))?;
+    let custom_pattern_count = custom_patterns.len();
+    let matcher = Matcher::with_custom(custom_patterns)?;
     let mut app = App::from_text(&text, &matcher);
     log_state(&format!(
-        "start pane_id={pane_id} lines={} targets={}",
+        "start pane_id={pane_id} lines={} targets={} custom_patterns={custom_pattern_count}",
         app.lines.len(),
         app.targets.len()
     ));

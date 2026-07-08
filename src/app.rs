@@ -127,4 +127,18 @@ mod tests {
         assert_eq!(app.input, "");
         assert_eq!(app.message.as_deref(), Some("no hint starts with z"));
     }
+
+    #[test]
+    fn copies_wrapped_url_without_the_pane_line_break() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("open https://exa\nmple.com", &matcher);
+        assert_eq!(app.targets.len(), 1);
+        let hint = app.targets[0].hint.clone();
+        let mut outcome = Outcome::Continue;
+        for ch in hint.chars() {
+            outcome = app.handle_char(ch);
+        }
+
+        assert_eq!(outcome, Outcome::Copy("https://example.com".to_string()));
+    }
 }

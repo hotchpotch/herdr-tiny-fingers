@@ -13,9 +13,17 @@ OSC 52 clipboard sequence for Herdr to forward.
 - `Cargo.toml` defines both the crate and the release binary as
   `herdr-tiny-fingers`.
 - `src/patterns.rs` ports the built-in tmux-fingers regex patterns. Patterns
-  with a named `match` capture must copy only that capture.
+  with a named `match` capture must copy only that capture. Custom user
+  patterns are loaded from `$HERDR_PLUGIN_CONFIG_DIR/config.toml`.
 - `src/main.rs` is the TUI entry point and should stay thin; keep matching,
   hinting, clipboard, and socket logic in the library modules.
+
+## Development Process
+
+Use TDD for behavior changes. Add or update failing unit tests that describe
+the intended behavior first, then implement the smallest change that makes
+those tests pass. Keep tests focused on pure modules where possible before
+checking the Herdr integration manually.
 
 ## Development Commands
 
@@ -55,6 +63,8 @@ description = "fingers mode"
   already forwards OSC 52 clipboard writes from plugin panes to the foreground
   client.
 - Keep the implementation intentionally small. This is not a full tmux-fingers
-  port; custom patterns, alternate actions, multi-select, jump mode, and style
-  configuration are out of scope unless explicitly requested.
+  port; alternate actions, multi-select, jump mode, and style configuration are
+  out of scope unless explicitly requested.
+- Matching may ignore pane line breaks for wrap-friendly patterns, but rendering
+  must keep the original visible pane lines and avoid changing line widths.
 - Do not commit `target/`, runtime logs, or local editor files.
