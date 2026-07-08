@@ -223,7 +223,15 @@ impl FlatText {
         let mut text = String::new();
         let mut positions = Vec::new();
         let mut line_start_indices = Vec::with_capacity(lines.len());
+        let wrap_width = inferred_wrap_width(lines);
         for (row, line) in lines.iter().enumerate() {
+            if row > 0 && !line_continues_wrapped_row(&lines[row - 1], wrap_width) {
+                text.push('\n');
+                positions.push(Position {
+                    row: row - 1,
+                    col: lines[row - 1].chars().count(),
+                });
+            }
             line_start_indices.push(positions.len());
             for (col, ch) in line.chars().enumerate() {
                 text.push(ch);
@@ -258,6 +266,18 @@ impl FlatText {
             .copied()
             .unwrap_or_default()
     }
+}
+
+fn inferred_wrap_width(lines: &[String]) -> usize {
+    lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or_default()
+}
+
+fn line_continues_wrapped_row(previous_line: &str, wrap_width: usize) -> bool {
+    wrap_width > 0 && previous_line.chars().count() >= wrap_width
 }
 
 fn match_from_flat_captures(flat_text: &FlatText, captures: regex::Captures<'_>) -> Option<Match> {
@@ -481,16 +501,35 @@ Your branch is up to date with 'origin/crystal-rewrite'.
     #[test]
     fn pane_line_breaks_are_ignored_for_urls_and_ips() {
         let matcher = Matcher::builtin().unwrap();
-        let lines = vec![
-            "open https://exa".to_string(),
-            "mple.com from 192.".to_string(),
-            "168.0.1".to_string(),
-        ];
-        let hits = matcher.find(&lines);
+        let url_lines = vec!["open https://exa".to_string(), "mple.com".to_string()];
+        let ip_lines = vec!["192.168.".to_string(), "0.1".to_string()];
+        let hits = matcher
+            .find(&url_lines)
+            .into_iter()
+            .chain(matcher.find(&ip_lines))
+            .collect::<Vec<_>>();
         let texts = hits.into_iter().map(|hit| hit.text).collect::<Vec<_>>();
 
         assert!(texts.contains(&"https://example.com".to_string()));
         assert!(texts.contains(&"192.168.0.1".to_string()));
+    }
+
+    #[test]
+    fn hard_line_breaks_are_not_ignored_for_paths() {
+        let matcher = Matcher::builtin().unwrap();
+        let lines = vec![
+            "pwd".to_string(),
+            "/Users/hotchpotch/src/github.com/hotchpotch/herdr-tiny-fingers".to_string(),
+        ];
+        let hits = matcher.find(&lines);
+        let texts = hits.into_iter().map(|hit| hit.text).collect::<Vec<_>>();
+
+        assert!(texts.contains(
+            &"/Users/hotchpotch/src/github.com/hotchpotch/herdr-tiny-fingers".to_string()
+        ));
+        assert!(!texts.contains(
+            &"pwd/Users/hotchpotch/src/github.com/hotchpotch/herdr-tiny-fingers".to_string()
+        ));
     }
 
     #[test]
