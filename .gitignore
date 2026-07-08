@@ -1,0 +1,9 @@
+target/
+
+# Local editor and OS metadata
+.DS_Store
+*.swp
+*.swo
+
+# Runtime/debug logs
+*.log

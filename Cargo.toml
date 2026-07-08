@@ -1,0 +1,26 @@
+[package]
+name = "herdr-tiny-fingers"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "tmux-fingers style copy hints for Herdr"
+license = "MIT"
+
+[[bin]]
+name = "herdr-tiny-fingers"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+crossterm = "0.29"
+ratatui = "0.30"
+regex = "1"
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[profile.release]
+lto = true
+strip = true

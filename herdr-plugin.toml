@@ -1,0 +1,21 @@
+id = "hotchpotch.herdr-tiny-fingers"
+name = "herdr-tiny-fingers"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "tmux-fingers style visible-screen copy hints for Herdr"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["cargo", "build", "--release", "--locked"]
+
+[[actions]]
+id = "open"
+title = "Open fingers mode"
+description = "Open tmux-fingers style copy hints for the focused pane"
+command = ["sh", "-c", "exec \"${HERDR_BIN_PATH:-herdr}\" plugin pane open --plugin hotchpotch.herdr-tiny-fingers --entrypoint finger"]
+
+[[panes]]
+id = "finger"
+title = "herdr-tiny-fingers"
+placement = "overlay"
+command = ["./target/release/herdr-tiny-fingers"]
