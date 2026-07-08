@@ -8,6 +8,12 @@ labels on each match, and lets you copy a match by typing its hint.
 This is intentionally not a full `tmux-fingers` port. It implements the subset
 of `tmux-fingers` that is sufficient for my Herdr workflow.
 
+## Demo
+
+<video src="./assets/fingers.mp4" controls muted loop playsinline width="100%"></video>
+
+[Watch the demo video](./assets/fingers.mp4)
+
 ## Features
 
 - Detects file paths, Git SHAs, numbers, IP addresses, UUIDs, URLs, Kubernetes
