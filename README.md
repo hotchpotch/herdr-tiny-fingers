@@ -8,12 +8,16 @@ labels on each match, and lets you copy a match by typing its hint.
 This is intentionally not a full `tmux-fingers` port. It implements the subset
 of `tmux-fingers` that is sufficient for my Herdr workflow.
 
-https://github.com/hotchpotch/herdr-tiny-fingers/raw/main/assets/fingers.mp4
+https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
+
 
 ## Features
 
 - Detects file paths, Git SHAs, numbers, IP addresses, UUIDs, URLs, Kubernetes
   names, Git status paths, and diff paths.
+
+
+
 - Opens as an overlay pane on top of the focused Herdr pane.
 - Copies selected text to the clipboard.
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
