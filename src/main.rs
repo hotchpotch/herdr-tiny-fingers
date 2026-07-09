@@ -29,6 +29,7 @@ fn run() -> Result<()> {
     let text = client.read_visible_pane(&pane_id)?;
     let config_dir = std::env::var_os("HERDR_PLUGIN_CONFIG_DIR");
     let pattern_settings = load_pattern_settings(config_dir.as_deref().map(Path::new))?;
+    let copy_toast = pattern_settings.copy_toast;
     let custom_pattern_count = pattern_settings.custom_patterns.len();
     let enabled_builtin_pattern_count = pattern_settings
         .enabled_builtin_patterns
@@ -69,13 +70,15 @@ fn run() -> Result<()> {
 
     if let Outcome::Copy(text) = outcome {
         copy_to_clipboard(&text)?;
-        match client.show_notification(&copy_notification_title(&text)) {
-            Ok(result) if !result.shown => {
-                log_state(&format!("notification_not_shown reason={}", result.reason));
-            }
-            Ok(_) => {}
-            Err(err) => {
-                log_state(&format!("notification_error: {err:#}"));
+        if copy_toast {
+            match client.show_notification(&copy_notification_title(&text)) {
+                Ok(result) if !result.shown => {
+                    log_state(&format!("notification_not_shown reason={}", result.reason));
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    log_state(&format!("notification_error: {err:#}"));
+                }
             }
         }
     }

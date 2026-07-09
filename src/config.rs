@@ -10,6 +10,8 @@ use crate::theme::{parse_color, Theme};
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub enabled_builtin_patterns: Option<Vec<String>>,
+    #[serde(default)]
+    pub copy_toast: bool,
     pub style: Option<StyleConfig>,
     #[serde(default)]
     pub patterns: Vec<PatternConfig>,
@@ -41,6 +43,7 @@ pub struct PatternSettings {
     pub enabled_builtin_patterns: Option<Vec<String>>,
     pub custom_patterns: Vec<PatternSpec>,
     pub theme: Theme,
+    pub copy_toast: bool,
 }
 
 pub fn parse_config(input: &str) -> Result<Config, toml::de::Error> {
@@ -64,6 +67,7 @@ pub fn compile_pattern_settings(config: &Config) -> Result<PatternSettings> {
         enabled_builtin_patterns: config.enabled_builtin_patterns.clone(),
         custom_patterns: compile_custom_patterns(config)?,
         theme: compile_theme(config.style.as_ref())?,
+        copy_toast: config.copy_toast,
     })
 }
 
@@ -122,6 +126,7 @@ pub fn load_pattern_settings(config_dir: Option<&Path>) -> Result<PatternSetting
             enabled_builtin_patterns: None,
             custom_patterns: Vec::new(),
             theme: Theme::default(),
+            copy_toast: false,
         });
     };
     let config_path = config_dir.join("config.toml");
@@ -132,6 +137,7 @@ pub fn load_pattern_settings(config_dir: Option<&Path>) -> Result<PatternSetting
                 enabled_builtin_patterns: None,
                 custom_patterns: Vec::new(),
                 theme: Theme::default(),
+                copy_toast: false,
             });
         }
         Err(err) => {
@@ -201,6 +207,24 @@ regex = "PROJ-[0-9]+"
             config.enabled_builtin_patterns,
             Some(vec!["url".to_string(), "sha".to_string()])
         );
+    }
+
+    #[test]
+    fn copy_toast_defaults_to_false() {
+        let config = parse_config("").unwrap();
+        let settings = compile_pattern_settings(&config).unwrap();
+
+        assert!(!config.copy_toast);
+        assert!(!settings.copy_toast);
+    }
+
+    #[test]
+    fn parses_copy_toast_true() {
+        let config = parse_config("copy_toast = true").unwrap();
+        let settings = compile_pattern_settings(&config).unwrap();
+
+        assert!(config.copy_toast);
+        assert!(settings.copy_toast);
     }
 
     #[test]

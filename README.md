@@ -55,9 +55,20 @@ matched text.
 
 ## Copy Toast
 
-Herdr notification toasts are controlled by the user's Herdr config, not the
-plugin config. To show the copied text after selection, enable Herdr's in-app
-toast delivery:
+Copy toasts are disabled by default. To show the copied text after selection,
+enable `copy_toast` in the plugin config:
+
+```bash
+herdr plugin config-dir hotchpotch.herdr-tiny-fingers
+```
+
+```toml
+# $HERDR_PLUGIN_CONFIG_DIR/config.toml
+copy_toast = true
+```
+
+The toast is sent through Herdr's notification system, so Herdr's in-app toast
+delivery must also be enabled in the user's Herdr config:
 
 ```toml
 [ui.toast]
@@ -70,8 +81,9 @@ Reload the Herdr config after changing it:
 herdr server reload-config
 ```
 
-If `delivery` is omitted or set to `off`, copying still works but the copied
-text toast is not shown.
+If `copy_toast` is omitted or set to `false`, copying works without showing a
+plugin toast. If Herdr's `delivery` is omitted or set to `off`, the plugin can
+request a toast but Herdr will not display it.
 
 ## Patterns
 
@@ -107,6 +119,8 @@ herdr plugin config-dir hotchpotch.herdr-tiny-fingers
 
 ```toml
 # $HERDR_PLUGIN_CONFIG_DIR/config.toml
+copy_toast = false
+
 enabled_builtin_patterns = ["url", "sha", "git-status", "git-status-branch"]
 
 [style]
