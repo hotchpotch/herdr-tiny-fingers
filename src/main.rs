@@ -28,7 +28,7 @@ fn run() -> Result<()> {
     let mut client = SocketClient::connect(Path::new(&socket_path))?;
     let text = client.read_visible_pane(&pane_id)?;
     let pane_width = match client.visible_pane_width(&pane_id) {
-        Ok(width) => Some(width),
+        Ok(width) => Some(visible_wrap_width(width)),
         Err(err) => {
             log_state(&format!("pane_width_unavailable: {err:#}"));
             None
@@ -106,6 +106,16 @@ fn copy_notification_title(text: &str) -> String {
     format!("Copied: {preview}")
 }
 
+fn visible_wrap_width(layout_width: usize) -> usize {
+    // Herdr's pane rectangle includes the terminal's wrap-pending right edge,
+    // while `pane.read` moves that character to the following visible row.
+    if layout_width > 1 {
+        layout_width - 1
+    } else {
+        layout_width
+    }
+}
+
 fn log_state(message: &str) {
     let Some(dir) = std::env::var_os("HERDR_PLUGIN_STATE_DIR") else {
         return;
@@ -179,6 +189,12 @@ mod tests {
             copy_notification_title("あいうえおかきくけこさしすせそた"),
             "Copied: あいうえおかきくけこさしすせそ..."
         );
+    }
+
+    #[test]
+    fn visible_wrap_width_excludes_the_terminal_right_edge() {
+        assert_eq!(visible_wrap_width(118), 117);
+        assert_eq!(visible_wrap_width(1), 1);
     }
 
     #[test]
