@@ -51,6 +51,25 @@ impl SocketClient {
             .to_string())
     }
 
+    pub fn visible_pane_width(&mut self, pane_id: &str) -> Result<usize> {
+        let result = self.call("pane.layout", json!({ "pane_id": pane_id }))?;
+        let actual_type = result["type"].as_str().unwrap_or("<missing>");
+        if actual_type != "pane_layout" {
+            bail!("expected pane_layout result, got {actual_type}");
+        }
+        let panes = result["layout"]["panes"]
+            .as_array()
+            .context("pane_layout result did not include panes")?;
+        let pane = panes
+            .iter()
+            .find(|pane| pane["pane_id"].as_str() == Some(pane_id))
+            .context("pane_layout result did not include the requested pane")?;
+        let width = pane["rect"]["width"]
+            .as_u64()
+            .context("pane_layout result did not include the pane width")?;
+        usize::try_from(width).context("pane width did not fit in usize")
+    }
+
     pub fn show_notification(&mut self, title: &str) -> Result<NotificationResult> {
         let result = self.call(
             "notification.show",
@@ -155,6 +174,59 @@ mod tests {
                 reason: "shown".to_string()
             }
         );
+        handle.join().unwrap();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[test]
+    fn reads_visible_text_and_uses_its_pane_layout_width() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_path = std::path::PathBuf::from(format!("/tmp/htf-{unique}.sock"));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let (_probe_stream, _) = listener.accept().unwrap();
+
+            let (mut read_stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            let mut reader = BufReader::new(read_stream.try_clone().unwrap());
+            reader.read_line(&mut request).unwrap();
+            let json: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(json["method"], "pane.read");
+            assert_eq!(json["params"]["source"], "visible");
+            read_stream
+                .write_all(
+                    br#"{"id":"1","result":{"type":"pane_read","read":{"text":"/tmp/project/\nmain.py"}}}"#,
+                )
+                .unwrap();
+            read_stream.write_all(b"\n").unwrap();
+
+            let (mut layout_stream, _) = listener.accept().unwrap();
+            request.clear();
+            let mut reader = BufReader::new(layout_stream.try_clone().unwrap());
+            reader.read_line(&mut request).unwrap();
+            let json: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(json["method"], "pane.layout");
+            assert_eq!(json["params"]["pane_id"], "pane-1");
+            layout_stream
+                .write_all(
+                    br#"{"id":"2","result":{"type":"pane_layout","layout":{"panes":[{"pane_id":"pane-1","rect":{"width":80}}]}}}"#,
+                )
+                .unwrap();
+            layout_stream.write_all(b"\n").unwrap();
+        });
+
+        let mut client = SocketClient::connect(&socket_path).unwrap();
+        assert_eq!(
+            client.read_visible_pane("pane-1").unwrap(),
+            "/tmp/project/\nmain.py"
+        );
+        assert_eq!(client.visible_pane_width("pane-1").unwrap(), 80);
+
         handle.join().unwrap();
         let _ = std::fs::remove_file(socket_path);
     }

@@ -27,6 +27,13 @@ fn run() -> Result<()> {
         .context("HERDR_PLUGIN_CONTEXT_JSON did not include focused_pane_id")?;
     let mut client = SocketClient::connect(Path::new(&socket_path))?;
     let text = client.read_visible_pane(&pane_id)?;
+    let pane_width = match client.visible_pane_width(&pane_id) {
+        Ok(width) => Some(width),
+        Err(err) => {
+            log_state(&format!("pane_width_unavailable: {err:#}"));
+            None
+        }
+    };
     let config_dir = std::env::var_os("HERDR_PLUGIN_CONFIG_DIR");
     let pattern_settings = load_pattern_settings(config_dir.as_deref().map(Path::new))?;
     let copy_toast = pattern_settings.copy_toast;
@@ -40,9 +47,14 @@ fn run() -> Result<()> {
         pattern_settings.enabled_builtin_patterns.as_deref(),
         pattern_settings.custom_patterns,
     )?;
-    let mut app = App::from_text_with_theme(&text, &matcher, pattern_settings.theme);
+    let mut app = match pane_width {
+        Some(width) => {
+            App::from_text_with_theme_and_pane_width(&text, &matcher, pattern_settings.theme, width)
+        }
+        None => App::from_text_with_theme(&text, &matcher, pattern_settings.theme),
+    };
     log_state(&format!(
-        "start pane_id={pane_id} lines={} targets={} custom_patterns={custom_pattern_count} enabled_builtin_patterns={enabled_builtin_pattern_count}",
+        "start pane_id={pane_id} lines={} targets={} pane_width={pane_width:?} custom_patterns={custom_pattern_count} enabled_builtin_patterns={enabled_builtin_pattern_count}",
         app.lines.len(),
         app.targets.len()
     ));

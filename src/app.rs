@@ -26,9 +26,29 @@ impl App {
     }
 
     pub fn from_text_with_theme(text: &str, matcher: &Matcher, theme: Theme) -> Self {
+        Self::from_text_with_theme_and_optional_pane_width(text, matcher, theme, None)
+    }
+
+    pub fn from_text_with_theme_and_pane_width(
+        text: &str,
+        matcher: &Matcher,
+        theme: Theme,
+        pane_width: usize,
+    ) -> Self {
+        Self::from_text_with_theme_and_optional_pane_width(text, matcher, theme, Some(pane_width))
+    }
+
+    fn from_text_with_theme_and_optional_pane_width(
+        text: &str,
+        matcher: &Matcher,
+        theme: Theme,
+        pane_width: Option<usize>,
+    ) -> Self {
         let lines = split_visible_text(text);
-        let targets = matcher
-            .find(&lines)
+        let hits = pane_width
+            .map(|width| matcher.find_with_wrap_width(&lines, width))
+            .unwrap_or_else(|| matcher.find(&lines));
+        let targets = hits
             .into_iter()
             .filter(|hit| hit.text.chars().count() >= 1)
             .collect::<Vec<_>>();
@@ -210,6 +230,33 @@ mod tests {
         }
 
         assert_eq!(outcome, Outcome::Copy("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn copies_a_path_wrapped_at_the_actual_pane_width() {
+        let matcher = Matcher::builtin().unwrap();
+        let first_line =
+            "• /home/hotchpotch/src/github.com/hotchpotch/mmBERT-embedding-reranker/static-small-embeddings/scripts/";
+        let mut app = App::from_text_with_theme_and_pane_width(
+            &format!("{first_line}\n  infer_nq100k_bf16.py --- wrapped path"),
+            &matcher,
+            Theme::default(),
+            first_line.chars().count(),
+        );
+
+        assert_eq!(app.targets.len(), 1);
+        let hint = app.targets[0].hint.clone();
+        let mut outcome = Outcome::Continue;
+        for ch in hint.chars() {
+            outcome = app.handle_char(ch);
+        }
+
+        assert_eq!(
+            outcome,
+            Outcome::Copy(
+                "/home/hotchpotch/src/github.com/hotchpotch/mmBERT-embedding-reranker/static-small-embeddings/scripts/infer_nq100k_bf16.py".to_string()
+            )
+        );
     }
 
     #[test]

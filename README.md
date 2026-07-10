@@ -20,8 +20,8 @@ https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
   `Tab` again to copy selections joined by newlines.
 - Supports custom Rust regex patterns in the plugin config.
-- Ignores pane line breaks for wrap-friendly matches, so wrapped URLs can copy
-  without the inserted terminal newline.
+- Ignores terminal-wrap line breaks for wrap-friendly matches, including long
+  paths, so they copy without the inserted terminal newline.
 - Supports configurable hint, match, selected-match, and status colors.
 - Can show an optional Herdr toast with the copied text, truncated after 15
   characters.
@@ -105,9 +105,13 @@ The default enabled patterns are ported from tmux-fingers built-ins:
 Patterns with a `match` capture copy only that capture, matching tmux-fingers'
 behavior for git status and diff output.
 
-Pane line breaks are ignored for wrap-friendly patterns, so a URL or IP address
-split by terminal wrapping can still be selected and copied without the inserted
-line break.
+Terminal-wrap line breaks are ignored for wrap-friendly patterns. The plugin
+uses the focused pane's actual display width, so URLs, IP addresses, and long
+paths split by terminal wrapping can still be selected and copied without the
+inserted line break. An indented file name after a wrapped directory path is
+also joined by the built-in `path` pattern. URL and other patterns retain that
+indentation as a boundary, so an indented `foo.html` is not accidentally added
+to a preceding URL.
 
 ## Custom Patterns
 

@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use regex::Regex;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
@@ -95,6 +96,7 @@ pub const BUILTIN_PATTERNS: &[BuiltinPattern] = &[
 struct CompiledPattern {
     regex: Regex,
     ignore_line_breaks: bool,
+    strip_indented_path_continuations: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +104,7 @@ pub struct PatternSpec {
     pub name: String,
     pub regex: String,
     pub ignore_line_breaks: bool,
+    strip_indented_path_continuations: bool,
 }
 
 impl PatternSpec {
@@ -110,6 +113,7 @@ impl PatternSpec {
             name: name.into(),
             regex: regex.into(),
             ignore_line_breaks: true,
+            strip_indented_path_continuations: false,
         }
     }
 }
@@ -120,6 +124,7 @@ impl From<&BuiltinPattern> for PatternSpec {
             name: pattern.name.to_string(),
             regex: pattern.regex.to_string(),
             ignore_line_breaks: pattern.ignore_line_breaks,
+            strip_indented_path_continuations: pattern.name == "path",
         }
     }
 }
@@ -159,6 +164,7 @@ impl Matcher {
                 Regex::new(&pattern.regex).map(|regex| CompiledPattern {
                     regex,
                     ignore_line_breaks: pattern.ignore_line_breaks,
+                    strip_indented_path_continuations: pattern.strip_indented_path_continuations,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -166,19 +172,37 @@ impl Matcher {
     }
 
     pub fn find(&self, lines: &[String]) -> Vec<Match> {
-        let flat_text = FlatText::from_lines(lines);
+        self.find_with_optional_wrap_width(lines, None)
+    }
+
+    pub fn find_with_wrap_width(&self, lines: &[String], wrap_width: usize) -> Vec<Match> {
+        self.find_with_optional_wrap_width(lines, Some(wrap_width))
+    }
+
+    fn find_with_optional_wrap_width(
+        &self,
+        lines: &[String],
+        wrap_width: Option<usize>,
+    ) -> Vec<Match> {
+        let flat_text = FlatText::from_lines(lines, wrap_width, false);
+        let path_flat_text = FlatText::from_lines(lines, wrap_width, true);
         let mut matches = Vec::new();
         for pattern in &self.patterns {
+            let flat_text = if pattern.strip_indented_path_continuations {
+                &path_flat_text
+            } else {
+                &flat_text
+            };
             if pattern.ignore_line_breaks {
                 for captures in pattern.regex.captures_iter(&flat_text.text) {
-                    if let Some(hit) = match_from_flat_captures(&flat_text, captures) {
+                    if let Some(hit) = match_from_flat_captures(flat_text, captures) {
                         matches.push(hit);
                     }
                 }
             } else {
                 for (row, line) in lines.iter().enumerate() {
                     for captures in pattern.regex.captures_iter(line) {
-                        if let Some(hit) = match_from_line_captures(&flat_text, row, line, captures)
+                        if let Some(hit) = match_from_line_captures(flat_text, row, line, captures)
                         {
                             matches.push(hit);
                         }
@@ -219,21 +243,32 @@ struct FlatText {
 }
 
 impl FlatText {
-    fn from_lines(lines: &[String]) -> Self {
+    fn from_lines(
+        lines: &[String],
+        wrap_width: Option<usize>,
+        strip_indented_path_continuations: bool,
+    ) -> Self {
         let mut text = String::new();
         let mut positions = Vec::new();
         let mut line_start_indices = Vec::with_capacity(lines.len());
-        let wrap_width = inferred_wrap_width(lines);
+        let wrap_width = wrap_width.unwrap_or_else(|| inferred_wrap_width(lines));
         for (row, line) in lines.iter().enumerate() {
-            if row > 0 && !line_continues_wrapped_row(&lines[row - 1], wrap_width) {
+            let continues_wrapped_row =
+                row > 0 && line_continues_wrapped_row(&lines[row - 1], wrap_width);
+            if row > 0 && !continues_wrapped_row {
                 text.push('\n');
                 positions.push(Position {
                     row: row - 1,
                     col: lines[row - 1].chars().count(),
                 });
             }
-            line_start_indices.push(positions.len());
-            for (col, ch) in line.chars().enumerate() {
+            let skipped_indent = if strip_indented_path_continuations && continues_wrapped_row {
+                indented_file_path_continuation(&lines[row - 1], line).unwrap_or_default()
+            } else {
+                0
+            };
+            line_start_indices.push(positions.len().saturating_sub(skipped_indent));
+            for (col, ch) in line.chars().enumerate().skip(skipped_indent) {
                 text.push(ch);
                 positions.push(Position { row, col });
             }
@@ -271,13 +306,25 @@ impl FlatText {
 fn inferred_wrap_width(lines: &[String]) -> usize {
     lines
         .iter()
-        .map(|line| line.chars().count())
+        .map(|line| UnicodeWidthStr::width(line.as_str()))
         .max()
         .unwrap_or_default()
 }
 
 fn line_continues_wrapped_row(previous_line: &str, wrap_width: usize) -> bool {
-    wrap_width > 0 && previous_line.chars().count() >= wrap_width
+    wrap_width > 0 && UnicodeWidthStr::width(previous_line) >= wrap_width
+}
+
+fn indented_file_path_continuation(previous_line: &str, line: &str) -> Option<usize> {
+    if !previous_line.ends_with('/') {
+        return None;
+    }
+    let indent = line.chars().take_while(|ch| ch.is_whitespace()).count();
+    if indent == 0 {
+        return None;
+    }
+    let file_name = line.split_whitespace().next()?;
+    file_name.contains('.').then_some(indent)
 }
 
 fn match_from_flat_captures(flat_text: &FlatText, captures: regex::Captures<'_>) -> Option<Match> {
@@ -512,6 +559,51 @@ Your branch is up to date with 'origin/crystal-rewrite'.
 
         assert!(texts.contains(&"https://example.com".to_string()));
         assert!(texts.contains(&"192.168.0.1".to_string()));
+    }
+
+    #[test]
+    fn joins_an_indented_file_name_after_a_wrapped_path_directory() {
+        let first_line =
+            "• /home/hotchpotch/src/github.com/hotchpotch/mmBERT-embedding-reranker/static-small-embeddings/scripts/";
+        let matcher = Matcher::builtin().unwrap();
+        let hits = matcher.find_with_wrap_width(
+            &[
+                first_line.to_string(),
+                "  infer_nq100k_bf16.py --- wrapped path".to_string(),
+            ],
+            UnicodeWidthStr::width(first_line),
+        );
+
+        assert!(hits.iter().any(|hit| {
+            hit.text
+                == "/home/hotchpotch/src/github.com/hotchpotch/mmBERT-embedding-reranker/static-small-embeddings/scripts/infer_nq100k_bf16.py"
+        }));
+    }
+
+    #[test]
+    fn does_not_strip_indent_from_a_wrapped_url() {
+        let first_line = "https://example.com/";
+        let matcher = Matcher::builtin().unwrap();
+        let hits = matcher.find_with_wrap_width(
+            &[first_line.to_string(), "  foo.html".to_string()],
+            UnicodeWidthStr::width(first_line),
+        );
+        let texts = hits.into_iter().map(|hit| hit.text).collect::<Vec<_>>();
+
+        assert!(texts.contains(&first_line.to_string()));
+        assert!(!texts.contains(&"https://example.com/foo.html".to_string()));
+    }
+
+    #[test]
+    fn does_not_join_indented_prose_after_a_wrapped_path_directory() {
+        let first_line = format!("/{}/", "a".repeat(78));
+        let matcher = Matcher::builtin().unwrap();
+        let hits = matcher.find_with_wrap_width(
+            &[first_line.clone(), "  explanation follows".to_string()],
+            UnicodeWidthStr::width(first_line.as_str()),
+        );
+
+        assert!(!hits.iter().any(|hit| hit.text.ends_with("/explanation")));
     }
 
     #[test]
