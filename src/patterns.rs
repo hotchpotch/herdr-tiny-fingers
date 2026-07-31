@@ -546,6 +546,30 @@ Your branch is up to date with 'origin/crystal-rewrite'.
     }
 
     #[test]
+    fn line_by_line_custom_pattern_matches_full_width_rows() {
+        let mut pattern = PatternSpec::new(
+            "k8s",
+            r"(?m)^[ \t]*(?P<match>[a-z0-9][a-zA-Z0-9_.:/@#$%&+=-]*)(?:[ \t]+|$)",
+        );
+        pattern.ignore_line_breaks = false;
+        let matcher = Matcher::new([pattern]).unwrap();
+        let lines = vec![
+            "NAME READY STATUS   ".to_string(),
+            "api-123 1/1 Running ".to_string(),
+            "deployment.apps/web-456 1/1 Running".to_string(),
+        ];
+        let wrap_width = UnicodeWidthStr::width(lines[0].as_str());
+        let hits = matcher.find_with_wrap_width(&lines, wrap_width);
+
+        assert_eq!(
+            hits.iter()
+                .map(|hit| (hit.text.as_str(), hit.start.row))
+                .collect::<Vec<_>>(),
+            [("api-123", 1), ("deployment.apps/web-456", 2)]
+        );
+    }
+
+    #[test]
     fn pane_line_breaks_are_ignored_for_urls_and_ips() {
         let matcher = Matcher::builtin().unwrap();
         let url_lines = vec!["open https://exa".to_string(), "mple.com".to_string()];
