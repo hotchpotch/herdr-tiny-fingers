@@ -70,6 +70,17 @@ impl SocketClient {
         usize::try_from(width).context("pane width did not fit in usize")
     }
 
+    pub fn send_text(&mut self, pane_id: &str, text: &str) -> Result<()> {
+        self.call(
+            "pane.send_text",
+            json!({
+                "pane_id": pane_id,
+                "text": text,
+            }),
+        )?;
+        Ok(())
+    }
+
     pub fn show_notification(&mut self, title: &str) -> Result<NotificationResult> {
         let result = self.call(
             "notification.show",
@@ -174,6 +185,42 @@ mod tests {
                 reason: "shown".to_string()
             }
         );
+        handle.join().unwrap();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[test]
+    fn sends_literal_text_to_a_pane() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_path = std::path::PathBuf::from(format!("/tmp/htf-{unique}.sock"));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let (_probe_stream, _) = listener.accept().unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+
+            let mut request = String::new();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            reader.read_line(&mut request).unwrap();
+            let json: Value = serde_json::from_str(&request).unwrap();
+
+            assert_eq!(json["id"], "1");
+            assert_eq!(json["method"], "pane.send_text");
+            assert_eq!(json["params"]["pane_id"], "pane-1");
+            assert_eq!(json["params"]["text"], "selected text");
+
+            stream
+                .write_all(br#"{"id":"1","result":{"type":"pane_send_text"}}"#)
+                .unwrap();
+            stream.write_all(b"\n").unwrap();
+        });
+
+        let mut client = SocketClient::connect(&socket_path).unwrap();
+        client.send_text("pane-1", "selected text").unwrap();
         handle.join().unwrap();
         let _ = std::fs::remove_file(socket_path);
     }

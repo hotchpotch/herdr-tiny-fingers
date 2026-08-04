@@ -12,6 +12,8 @@ pub struct Config {
     pub enabled_builtin_patterns: Option<Vec<String>>,
     #[serde(default)]
     pub copy_toast: bool,
+    #[serde(default)]
+    pub direct_paste: bool,
     pub style: Option<StyleConfig>,
     #[serde(default)]
     pub patterns: Vec<PatternConfig>,
@@ -21,6 +23,12 @@ pub struct Config {
 pub struct PatternConfig {
     pub name: String,
     pub regex: String,
+    #[serde(default = "default_ignore_line_breaks")]
+    pub ignore_line_breaks: bool,
+}
+
+fn default_ignore_line_breaks() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -44,6 +52,7 @@ pub struct PatternSettings {
     pub custom_patterns: Vec<PatternSpec>,
     pub theme: Theme,
     pub copy_toast: bool,
+    pub direct_paste: bool,
 }
 
 pub fn parse_config(input: &str) -> Result<Config, toml::de::Error> {
@@ -57,7 +66,9 @@ pub fn compile_custom_patterns(config: &Config) -> Result<Vec<PatternSpec>> {
         .map(|pattern| {
             Regex::new(&pattern.regex)
                 .with_context(|| format!("invalid custom regex pattern '{}'", pattern.name))?;
-            Ok(PatternSpec::new(&pattern.name, &pattern.regex))
+            let mut spec = PatternSpec::new(&pattern.name, &pattern.regex);
+            spec.ignore_line_breaks = pattern.ignore_line_breaks;
+            Ok(spec)
         })
         .collect()
 }
@@ -68,6 +79,7 @@ pub fn compile_pattern_settings(config: &Config) -> Result<PatternSettings> {
         custom_patterns: compile_custom_patterns(config)?,
         theme: compile_theme(config.style.as_ref())?,
         copy_toast: config.copy_toast,
+        direct_paste: config.direct_paste,
     })
 }
 
@@ -127,6 +139,7 @@ pub fn load_pattern_settings(config_dir: Option<&Path>) -> Result<PatternSetting
             custom_patterns: Vec::new(),
             theme: Theme::default(),
             copy_toast: false,
+            direct_paste: false,
         });
     };
     let config_path = config_dir.join("config.toml");
@@ -138,6 +151,7 @@ pub fn load_pattern_settings(config_dir: Option<&Path>) -> Result<PatternSetting
                 custom_patterns: Vec::new(),
                 theme: Theme::default(),
                 copy_toast: false,
+                direct_paste: false,
             });
         }
         Err(err) => {
@@ -173,6 +187,33 @@ regex = "env=(?P<match>[a-z0-9_-]+)"
         assert_eq!(config.patterns.len(), 2);
         assert_eq!(config.patterns[0].name, "ticket");
         assert_eq!(config.patterns[1].regex, "env=(?P<match>[a-z0-9_-]+)");
+    }
+
+    #[test]
+    fn custom_pattern_line_break_handling_defaults_to_true_and_can_be_disabled() {
+        let defaults = parse_config(
+            r#"
+[[patterns]]
+name = "ticket"
+regex = "PROJ-[0-9]+"
+"#,
+        )
+        .unwrap();
+        assert!(defaults.patterns[0].ignore_line_breaks);
+
+        let line_by_line = parse_config(
+            r#"
+[[patterns]]
+name = "k8s"
+regex = "(?m)^\\S+"
+ignore_line_breaks = false
+"#,
+        )
+        .unwrap();
+        assert!(!line_by_line.patterns[0].ignore_line_breaks);
+
+        let settings = compile_pattern_settings(&line_by_line).unwrap();
+        assert!(!settings.custom_patterns[0].ignore_line_breaks);
     }
 
     #[test]
@@ -225,6 +266,24 @@ regex = "PROJ-[0-9]+"
 
         assert!(config.copy_toast);
         assert!(settings.copy_toast);
+    }
+
+    #[test]
+    fn direct_paste_defaults_to_false() {
+        let config = parse_config("").unwrap();
+        let settings = compile_pattern_settings(&config).unwrap();
+
+        assert!(!config.direct_paste);
+        assert!(!settings.direct_paste);
+    }
+
+    #[test]
+    fn parses_direct_paste_true() {
+        let config = parse_config("direct_paste = true").unwrap();
+        let settings = compile_pattern_settings(&config).unwrap();
+
+        assert!(config.direct_paste);
+        assert!(settings.direct_paste);
     }
 
     #[test]

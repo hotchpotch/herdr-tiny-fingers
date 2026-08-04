@@ -6,6 +6,7 @@ use crate::theme::Theme;
 pub enum Outcome {
     Continue,
     Copy(String),
+    CopyMultiple(String),
     Cancel,
 }
 
@@ -124,7 +125,7 @@ impl App {
             return Outcome::Continue;
         }
 
-        Outcome::Copy(self.selected_text().join("\n"))
+        Outcome::CopyMultiple(self.selected_text().join("\n"))
     }
 
     fn toggle_selected_hint(&mut self, hint: String) {
@@ -274,7 +275,7 @@ mod tests {
 
         assert_eq!(
             app.handle_char('\t'),
-            Outcome::Copy("1234\n5678".to_string())
+            Outcome::CopyMultiple("1234\n5678".to_string())
         );
     }
 

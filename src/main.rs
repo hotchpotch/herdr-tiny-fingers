@@ -37,6 +37,7 @@ fn run() -> Result<()> {
     let config_dir = std::env::var_os("HERDR_PLUGIN_CONFIG_DIR");
     let pattern_settings = load_pattern_settings(config_dir.as_deref().map(Path::new))?;
     let copy_toast = pattern_settings.copy_toast;
+    let direct_paste = pattern_settings.direct_paste;
     let custom_pattern_count = pattern_settings.custom_patterns.len();
     let enabled_builtin_pattern_count = pattern_settings
         .enabled_builtin_patterns
@@ -80,10 +81,42 @@ fn run() -> Result<()> {
     };
     log_state(&format!("outcome={outcome:?}"));
 
-    if let Outcome::Copy(text) = outcome {
-        copy_to_clipboard(&text)?;
+    match outcome {
+        Outcome::Copy(text) => deliver_text(
+            &mut client,
+            &pane_id,
+            &text,
+            direct_paste,
+            copy_toast,
+            false,
+        )?,
+        Outcome::CopyMultiple(text) => {
+            deliver_text(&mut client, &pane_id, &text, direct_paste, copy_toast, true)?
+        }
+        Outcome::Continue | Outcome::Cancel => {}
+    }
+    Ok(())
+}
+
+fn deliver_text(
+    client: &mut SocketClient,
+    pane_id: &str,
+    text: &str,
+    direct_paste: bool,
+    copy_toast: bool,
+    multi_select: bool,
+) -> Result<()> {
+    if direct_paste {
+        let direct_text = if multi_select {
+            direct_paste_multi_text(text)
+        } else {
+            text.to_string()
+        };
+        client.send_text(pane_id, &direct_text)?;
+    } else {
+        copy_to_clipboard(text)?;
         if copy_toast {
-            match client.show_notification(&copy_notification_title(&text)) {
+            match client.show_notification(&copy_notification_title(text)) {
                 Ok(result) if !result.shown => {
                     log_state(&format!("notification_not_shown reason={}", result.reason));
                 }
@@ -95,6 +128,12 @@ fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn direct_paste_multi_text(text: &str) -> String {
+    text.chars()
+        .map(|ch| if matches!(ch, '\r' | '\n') { ' ' } else { ch })
+        .collect()
 }
 
 fn copy_notification_title(text: &str) -> String {
@@ -161,6 +200,9 @@ fn key_to_char(key: KeyEvent) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn copy_notification_title_includes_short_text() {
@@ -189,6 +231,58 @@ mod tests {
             copy_notification_title("あいうえおかきくけこさしすせそた"),
             "Copied: あいうえおかきくけこさしすせそ..."
         );
+    }
+
+    #[test]
+    fn direct_paste_multi_text_replaces_line_breaks_with_spaces() {
+        let text = direct_paste_multi_text("git clean -fd\nREADME.md\rnotes.txt");
+
+        assert_eq!(text, "git clean -fd README.md notes.txt");
+        assert!(!text.chars().any(|ch| matches!(ch, '\r' | '\n')));
+    }
+
+    #[test]
+    fn direct_paste_multi_select_sends_no_line_breaks_to_the_pane() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_path = std::path::PathBuf::from(format!("/tmp/htf-{unique}.sock"));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let (_probe_stream, _) = listener.accept().unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+
+            let mut request = String::new();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            reader.read_line(&mut request).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&request).unwrap();
+            let text = json["params"]["text"].as_str().unwrap();
+
+            assert_eq!(json["method"], "pane.send_text");
+            assert_eq!(text, "git clean -fd README.md");
+            assert!(!text.chars().any(|ch| matches!(ch, '\r' | '\n')));
+
+            stream
+                .write_all(br#"{"id":"1","result":{"type":"pane_send_text"}}"#)
+                .unwrap();
+            stream.write_all(b"\n").unwrap();
+        });
+
+        let mut client = SocketClient::connect(&socket_path).unwrap();
+        deliver_text(
+            &mut client,
+            "pane-1",
+            "git clean -fd\nREADME.md",
+            true,
+            false,
+            true,
+        )
+        .unwrap();
+        handle.join().unwrap();
+        let _ = std::fs::remove_file(socket_path);
     }
 
     #[test]
