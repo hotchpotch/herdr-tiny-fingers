@@ -20,8 +20,7 @@ https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
   pane when direct paste is enabled.
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
   `Tab` again to copy selections joined by newlines. When `direct_paste` is
-  enabled, multi-select values are joined with spaces and line breaks are never
-  sent to the original pane.
+  enabled, multi-select values are joined with spaces instead.
 - Supports custom Rust regex patterns in the plugin config.
 - Ignores terminal-wrap line breaks for wrap-friendly matches, including long
   paths, so they copy without the inserted terminal newline.
@@ -60,10 +59,14 @@ matched text.
 
 Direct paste is disabled by default. Set `direct_paste = true` in the plugin
 config to send the selected text directly to the original focused pane instead
-of writing it to the clipboard. This sends literal text without pressing Enter;
-`copy_toast` is ignored in this mode. For multi-select, selected values are
-joined with a single space, and carriage returns or line feeds are replaced with
-spaces so they cannot submit text to the target shell.
+of writing it to the clipboard; `copy_toast` is ignored in this mode. Single
+selections are sent unchanged. For multi-select, selected values are joined with
+a single space, and carriage returns or line feeds between them are replaced
+with spaces so they do not submit the preceding values to the target shell.
+
+A custom pattern can produce a multiline single selection. Its line breaks are
+sent literally, so avoid multiline custom matches with direct paste when the
+target pane may interpret a line break as Enter.
 
 ## Copy Toast
 
