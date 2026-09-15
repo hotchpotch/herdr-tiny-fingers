@@ -79,7 +79,6 @@ fn run() -> Result<()> {
             }
         }
     };
-    log_state(&format!("outcome={outcome:?}"));
 
     match outcome {
         Outcome::Copy(text) => deliver_text(

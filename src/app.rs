@@ -2,12 +2,24 @@ use crate::hints::{assign_hints, HintTarget};
 use crate::patterns::{Match, Matcher};
 use crate::theme::Theme;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Outcome {
     Continue,
     Copy(String),
     CopyMultiple(String),
     Cancel,
+}
+
+// Copied text may contain secrets; never include it in debug output.
+impl std::fmt::Debug for Outcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Continue => "Continue",
+            Self::Copy(_) => "Copy",
+            Self::CopyMultiple(_) => "CopyMultiple",
+            Self::Cancel => "Cancel",
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -183,6 +195,20 @@ fn split_visible_text(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn outcome_debug_omits_copied_text() {
+        for (outcome, expected) in [
+            (super::Outcome::Copy("secret-password".into()), "Copy"),
+            (
+                super::Outcome::CopyMultiple("secret-password\nprivate-token".into()),
+                "CopyMultiple",
+            ),
+        ] {
+            assert_eq!(format!("{outcome:?}"), expected);
+            assert_eq!(format!("{outcome:#?}"), expected);
+        }
+    }
+
     use super::*;
 
     #[test]
