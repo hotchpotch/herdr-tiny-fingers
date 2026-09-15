@@ -31,6 +31,25 @@ impl SocketClient {
         })
     }
 
+    pub fn open_overlay(&mut self, pane_id: &str) -> Result<()> {
+        let result = self.call("pane.layout", json!({"pane_id": pane_id}))?;
+        let geometry = crate::overlay::OverlayGeometry::from_layout(&result["layout"], pane_id)?;
+        let opened = self.call(
+            "plugin.pane.open",
+            json!({
+                "plugin_id": "hotchpotch.herdr-tiny-fingers",
+                "entrypoint": "finger",
+                "env": { (crate::overlay::GEOMETRY_ENV): serde_json::to_string(&geometry)? }
+            }),
+        )?;
+        let overlay_id = opened["plugin_pane"]["pane"]["pane_id"]
+            .as_str()
+            .context("plugin.pane.open did not return the overlay pane ID")?;
+        // Herdr 0.9 can retain the initial split-sized PTY until an explicit zoom request.
+        self.call("pane.zoom", json!({"pane_id": overlay_id, "mode": "on"}))?;
+        Ok(())
+    }
+
     pub fn read_visible_pane(&mut self, pane_id: &str) -> Result<String> {
         let result = self.call(
             "pane.read",
@@ -144,6 +163,75 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn captures_layout_before_opening_overlay_and_passes_only_geometry() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_path = PathBuf::from(format!("/tmp/htf-{unique}.sock"));
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let handle = std::thread::spawn(move || {
+            let (_probe, _) = listener.accept().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            for step in 0..3 {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "missing request at step {step}"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(err) => panic!("accept failed: {err}"),
+                    }
+                };
+                let mut request = String::new();
+                BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut request)
+                    .unwrap();
+                let request: Value = serde_json::from_str(&request).unwrap();
+                let result = if step == 0 {
+                    assert_eq!(request["method"], "pane.layout");
+                    assert_eq!(request["params"]["pane_id"], "right");
+                    json!({"type":"pane_layout","layout":{
+                        "area":{"x":0,"y":0,"width":100,"height":40},"zoomed":false,
+                        "panes":[{"pane_id":"right","rect":{"x":51,"y":0,"width":49,"height":40}}]}})
+                } else if step == 1 {
+                    assert_eq!(request["method"], "plugin.pane.open");
+                    assert_eq!(
+                        request["params"]["plugin_id"],
+                        "hotchpotch.herdr-tiny-fingers"
+                    );
+                    assert_eq!(request["params"]["entrypoint"], "finger");
+                    let env = request["params"]["env"].as_object().unwrap();
+                    assert_eq!(env.len(), 1);
+                    let geometry: crate::overlay::OverlayGeometry =
+                        serde_json::from_str(env[crate::overlay::GEOMETRY_ENV].as_str().unwrap())
+                            .unwrap();
+                    assert_eq!(geometry.pane_id, "right");
+                    assert_eq!(geometry.pane.x, 51);
+                    assert_eq!(geometry.pane.width, 49);
+                    json!({"type":"plugin_pane_opened","plugin_pane":{"pane":{"pane_id":"overlay"}}})
+                } else {
+                    assert_eq!(request["method"], "pane.zoom");
+                    assert_eq!(request["params"], json!({"pane_id":"overlay","mode":"on"}));
+                    json!({"type":"pane_zoom"})
+                };
+                writeln!(stream, "{}", json!({"id":request["id"],"result":result})).unwrap();
+            }
+        });
+        SocketClient::connect(&socket_path)
+            .unwrap()
+            .open_overlay("right")
+            .unwrap();
+        handle.join().unwrap();
+        std::fs::remove_file(socket_path).unwrap();
+    }
 
     #[test]
     fn show_notification_sends_notification_show_request() {

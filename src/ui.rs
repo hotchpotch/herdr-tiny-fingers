@@ -9,10 +9,58 @@ use crate::patterns::Match;
 use crate::theme::Theme;
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
-    let area = frame.area();
-    let lines = render_lines(app, usize::from(area.height.saturating_sub(1)));
-    frame.render_widget(Paragraph::new(lines), area);
-    draw_status(frame, app, area);
+    draw_with_geometry(frame, app, None);
+}
+
+pub fn draw_with_geometry(
+    frame: &mut Frame<'_>,
+    app: &App,
+    geometry: Option<&crate::overlay::OverlayGeometry>,
+) {
+    let frame_area = frame.area();
+    let (content, mut status) = match geometry {
+        Some(geometry) => geometry.regions(frame_area),
+        None => (
+            Rect::new(
+                frame_area.x,
+                frame_area.y,
+                frame_area.width,
+                frame_area.height.saturating_sub(1),
+            ),
+            Rect::new(
+                frame_area.x,
+                frame_area.bottom().saturating_sub(1),
+                frame_area.width,
+                1,
+            )
+            .intersection(frame_area),
+        ),
+    };
+    if status.is_empty() && !content.is_empty() {
+        // A full-tab source has no space around it. Use only blank space after its last row.
+        let occupied = app
+            .lines
+            .get(usize::from(content.height - 1))
+            .map(|line| unicode_width::UnicodeWidthStr::width(line.as_str()))
+            .unwrap_or(0);
+        let offset = if occupied == 0 {
+            0
+        } else {
+            occupied.saturating_add(2)
+        };
+        let offset = u16::try_from(offset).unwrap_or(u16::MAX).min(content.width);
+        if content.width.saturating_sub(offset) >= 12 {
+            status = Rect::new(
+                content.x + offset,
+                content.bottom() - 1,
+                content.width - offset,
+                1,
+            );
+        }
+    }
+    let lines = render_lines(app, usize::from(content.height));
+    frame.render_widget(Paragraph::new(lines), content);
+    draw_status(frame, app, status);
 }
 
 fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -263,6 +311,68 @@ mod tests {
     use ratatui::style::Color;
 
     use super::*;
+
+    #[test]
+    fn draws_bottom_right_source_at_original_cells_including_last_row() {
+        use crate::overlay::{OverlayGeometry, PaneRect};
+        use ratatui::{backend::TestBackend, Terminal};
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("TOP 1234\n\nLAST 5678", &matcher);
+        app.targets[0].hint = "a".into();
+        app.targets[1].hint = "s".into();
+        let geometry = OverlayGeometry {
+            pane_id: "right".into(),
+            area: PaneRect {
+                x: 0,
+                y: 0,
+                width: 30,
+                height: 6,
+            },
+            pane: PaneRect {
+                x: 16,
+                y: 3,
+                width: 14,
+                height: 3,
+            },
+        };
+        let mut terminal = Terminal::new(TestBackend::new(30, 6)).unwrap();
+        terminal
+            .draw(|frame| draw_with_geometry(frame, &app, Some(&geometry)))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(16, 3)].symbol(), "T");
+        assert_eq!(buffer[(20, 3)].symbol(), "a");
+        assert_eq!(buffer[(16, 5)].symbol(), "L");
+        assert_eq!(buffer[(21, 5)].symbol(), "s");
+        assert_eq!(buffer[(0, 3)].symbol(), " ");
+    }
+
+    #[test]
+    fn full_pane_keeps_last_row_targets_when_no_room_for_status() {
+        use crate::overlay::{OverlayGeometry, PaneRect};
+        use ratatui::{backend::TestBackend, Terminal};
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("top\n\nLAST 1234", &matcher);
+        app.targets[0].hint = "a".into();
+        let rect = PaneRect {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 3,
+        };
+        let geometry = OverlayGeometry {
+            pane_id: "one".into(),
+            area: rect,
+            pane: rect,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(10, 3)).unwrap();
+        terminal
+            .draw(|frame| draw_with_geometry(frame, &app, Some(&geometry)))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 2)].symbol(), "L");
+        assert_eq!(buffer[(5, 2)].symbol(), "a");
+    }
 
     #[test]
     fn render_line_replaces_start_of_match_with_hint_without_changing_text_width() {
