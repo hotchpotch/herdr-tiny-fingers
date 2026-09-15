@@ -7,6 +7,7 @@ use herdr_tiny_fingers::app::{App, Outcome};
 use herdr_tiny_fingers::clipboard::copy_to_clipboard;
 use herdr_tiny_fingers::config::load_pattern_settings;
 use herdr_tiny_fingers::herdr_client::{context_focused_pane_id, SocketClient};
+use herdr_tiny_fingers::overlay::{OverlayGeometry, GEOMETRY_ENV};
 use herdr_tiny_fingers::patterns::Matcher;
 
 fn main() -> ExitCode {
@@ -26,13 +27,31 @@ fn run() -> Result<()> {
     let pane_id = context_focused_pane_id()
         .context("HERDR_PLUGIN_CONTEXT_JSON did not include focused_pane_id")?;
     let mut client = SocketClient::connect(Path::new(&socket_path))?;
+    if std::env::args().nth(1).as_deref() == Some("open") {
+        return client.open_overlay(&pane_id);
+    }
+    let geometry: Option<OverlayGeometry> = std::env::var(GEOMETRY_ENV)
+        .ok()
+        .map(|value| serde_json::from_str(&value))
+        .transpose()
+        .context("invalid overlay geometry")?;
+    let pane_id = geometry
+        .as_ref()
+        .map(|geometry| geometry.pane_id.clone())
+        .unwrap_or(pane_id);
     let text = client.read_visible_pane(&pane_id)?;
-    let pane_width = match client.visible_pane_width(&pane_id) {
-        Ok(width) => Some(visible_wrap_width(width)),
-        Err(err) => {
-            log_state(&format!("pane_width_unavailable: {err:#}"));
-            None
-        }
+    let pane_width = match geometry
+        .as_ref()
+        .map(|geometry| usize::from(geometry.pane.width))
+    {
+        Some(width) => Some(visible_wrap_width(width)),
+        None => match client.visible_pane_width(&pane_id) {
+            Ok(width) => Some(visible_wrap_width(width)),
+            Err(err) => {
+                log_state(&format!("pane_width_unavailable: {err:#}"));
+                None
+            }
+        },
     };
     let config_dir = std::env::var_os("HERDR_PLUGIN_CONFIG_DIR");
     let pattern_settings = load_pattern_settings(config_dir.as_deref().map(Path::new))?;
@@ -63,8 +82,17 @@ fn run() -> Result<()> {
     let outcome = {
         let _restore = TerminalRestore;
         let mut terminal = ratatui::init();
+        // Register resize events before the launcher applies the overlay size.
+        event::poll(std::time::Duration::ZERO)?;
+        let initial_size = terminal.size()?;
+        let expected_size = geometry
+            .as_ref()
+            .map(|geometry| (geometry.area.width, geometry.area.height))
+            .unwrap_or((initial_size.width, initial_size.height));
         loop {
-            terminal.draw(|frame| herdr_tiny_fingers::ui::draw(frame, &app))?;
+            terminal.draw(|frame| {
+                herdr_tiny_fingers::ui::draw_with_geometry(frame, &app, geometry.as_ref())
+            })?;
             match event::read()? {
                 Event::Key(key) => {
                     if let Some(ch) = key_to_char(key) {
@@ -74,7 +102,10 @@ fn run() -> Result<()> {
                         }
                     }
                 }
-                Event::Resize(_, _) => {}
+                Event::Resize(width, height) if (width, height) != expected_size => {
+                    // The snapshot no longer matches the source viewport. Reopen to capture it again.
+                    break Outcome::Cancel;
+                }
                 _ => {}
             }
         }

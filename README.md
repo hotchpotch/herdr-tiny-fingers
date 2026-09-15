@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
 
 - Detects file paths, Git SHAs, numbers, IP addresses, UUIDs, URLs, Kubernetes
   names, Git status paths, and diff paths.
-- Opens as an overlay pane on top of the focused Herdr pane.
+- Keeps text and hints in the original pane region when the tab is split.
 - Copies selected text to the clipboard, or sends it directly to the focused
   pane when direct paste is enabled.
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
@@ -54,6 +54,22 @@ herdr server reload-config
 
 Then press `prefix+f` in Herdr to open fingers mode. Type a hint to copy the
 matched text.
+
+## Overlay Placement
+
+The open action captures the focused pane's layout before opening the overlay.
+Text and hints stay in that pane's original region; the rest of the tab is blank.
+A pane that was already zoomed uses the full tab area.
+
+Controls appear in unused space outside the source pane. For a full-tab source,
+they use blank space at the end of the last row, and are hidden if there is not
+enough room. Resizing the overlay closes fingers mode; reopen it to capture the
+new layout. Open through the plugin action (including `prefix+f`) to preserve
+placement; opening the pane entrypoint directly uses the legacy full-tab view.
+
+Placement uses the pane rectangles exposed by `pane.layout`. Herdr does not
+expose the inner text rectangle through this API, so custom pane borders can
+cause a small offset between the original text and the overlay.
 
 ## Direct Paste
 
