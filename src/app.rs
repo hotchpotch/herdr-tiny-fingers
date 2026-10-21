@@ -6,6 +6,7 @@ use crate::theme::Theme;
 pub enum Outcome {
     Continue,
     Copy(String),
+    CopyAndPaste(String),
     CopyMultiple(String),
     Cancel,
 }
@@ -16,6 +17,7 @@ impl std::fmt::Debug for Outcome {
         f.write_str(match self {
             Self::Continue => "Continue",
             Self::Copy(_) => "Copy",
+            Self::CopyAndPaste(_) => "CopyAndPaste",
             Self::CopyMultiple(_) => "CopyMultiple",
             Self::Cancel => "Cancel",
         })
@@ -106,6 +108,10 @@ impl App {
                     self.input.clear();
                     self.message = None;
                     return Outcome::Continue;
+                }
+                // tmux-fingers convention: an uppercase final key also pastes.
+                if ch.is_ascii_uppercase() {
+                    return Outcome::CopyAndPaste(target.target.text.clone());
                 }
                 return Outcome::Copy(target.target.text.clone());
             }
@@ -200,6 +206,10 @@ mod tests {
         for (outcome, expected) in [
             (super::Outcome::Copy("secret-password".into()), "Copy"),
             (
+                super::Outcome::CopyAndPaste("secret-password".into()),
+                "CopyAndPaste",
+            ),
+            (
                 super::Outcome::CopyMultiple("secret-password\nprivate-token".into()),
                 "CopyMultiple",
             ),
@@ -222,6 +232,31 @@ mod tests {
             outcome = app.handle_char(ch);
         }
         assert_eq!(outcome, Outcome::Copy("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn uppercase_last_hint_key_copies_and_pastes() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234 5678", &matcher);
+        app.targets[0].hint = "as".to_string();
+        app.targets[1].hint = "ad".to_string();
+
+        assert_eq!(app.handle_char('a'), Outcome::Continue);
+        assert_eq!(
+            app.handle_char('D'),
+            Outcome::CopyAndPaste("5678".to_string())
+        );
+    }
+
+    #[test]
+    fn uppercase_only_on_earlier_hint_key_copies() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234 5678", &matcher);
+        app.targets[0].hint = "as".to_string();
+        app.targets[1].hint = "ad".to_string();
+
+        assert_eq!(app.handle_char('A'), Outcome::Continue);
+        assert_eq!(app.handle_char('d'), Outcome::Copy("5678".to_string()));
     }
 
     #[test]

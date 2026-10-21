@@ -120,6 +120,10 @@ fn run() -> Result<()> {
             copy_toast,
             false,
         )?,
+        Outcome::CopyAndPaste(text) => {
+            copy_to_clipboard(&text)?;
+            client.send_text(&pane_id, &text)?;
+        }
         Outcome::CopyMultiple(text) => {
             deliver_text(&mut client, &pane_id, &text, direct_paste, copy_toast, true)?
         }

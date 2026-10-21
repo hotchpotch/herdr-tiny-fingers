@@ -18,6 +18,8 @@ https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
 - Keeps text and hints in the original pane region when the tab is split.
 - Copies selected text to the clipboard, or sends it directly to the focused
   pane when direct paste is enabled.
+- Copies and also pastes into the focused pane when the last hint key is
+  uppercase, like tmux-fingers.
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
   `Tab` again to copy selections joined by newlines. When `direct_paste` is
   enabled, multi-select values are joined with spaces instead.
