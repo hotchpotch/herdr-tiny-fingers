@@ -33,6 +33,7 @@ pub struct App {
     pub multi_mode: bool,
     pub selected_hints: Vec<String>,
     pub theme: Theme,
+    pub uppercase_copy_and_paste: bool,
 }
 
 impl App {
@@ -75,6 +76,7 @@ impl App {
             multi_mode: false,
             selected_hints: Vec::new(),
             theme,
+            uppercase_copy_and_paste: false,
         }
     }
 
@@ -110,7 +112,7 @@ impl App {
                     return Outcome::Continue;
                 }
                 // tmux-fingers convention: an uppercase final key also pastes.
-                if ch.is_ascii_uppercase() {
+                if self.uppercase_copy_and_paste && ch.is_ascii_uppercase() {
                     return Outcome::CopyAndPaste(target.target.text.clone());
                 }
                 return Outcome::Copy(target.target.text.clone());
@@ -235,9 +237,22 @@ mod tests {
     }
 
     #[test]
-    fn uppercase_last_hint_key_copies_and_pastes() {
+    fn uppercase_last_hint_key_only_copies_by_default() {
         let matcher = Matcher::builtin().unwrap();
         let mut app = App::from_text("1234 5678", &matcher);
+        app.targets[0].hint = "as".to_string();
+        app.targets[1].hint = "ad".to_string();
+
+        assert!(!app.uppercase_copy_and_paste);
+        assert_eq!(app.handle_char('a'), Outcome::Continue);
+        assert_eq!(app.handle_char('D'), Outcome::Copy("5678".to_string()));
+    }
+
+    #[test]
+    fn uppercase_last_hint_key_copies_and_pastes_when_enabled() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234 5678", &matcher);
+        app.uppercase_copy_and_paste = true;
         app.targets[0].hint = "as".to_string();
         app.targets[1].hint = "ad".to_string();
 
@@ -249,9 +264,27 @@ mod tests {
     }
 
     #[test]
-    fn uppercase_only_on_earlier_hint_key_copies() {
+    fn uppercase_hint_key_in_multi_mode_only_selects_when_enabled() {
         let matcher = Matcher::builtin().unwrap();
         let mut app = App::from_text("1234 5678", &matcher);
+        app.uppercase_copy_and_paste = true;
+        app.targets[0].hint = "a".to_string();
+        app.targets[1].hint = "s".to_string();
+
+        assert_eq!(app.handle_char('\t'), Outcome::Continue);
+        assert_eq!(app.handle_char('A'), Outcome::Continue);
+        assert_eq!(app.handle_char('S'), Outcome::Continue);
+        assert_eq!(
+            app.handle_char('\t'),
+            Outcome::CopyMultiple("1234\n5678".to_string())
+        );
+    }
+
+    #[test]
+    fn uppercase_only_on_earlier_hint_key_copies_when_enabled() {
+        let matcher = Matcher::builtin().unwrap();
+        let mut app = App::from_text("1234 5678", &matcher);
+        app.uppercase_copy_and_paste = true;
         app.targets[0].hint = "as".to_string();
         app.targets[1].hint = "ad".to_string();
 

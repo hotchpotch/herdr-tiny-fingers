@@ -14,6 +14,8 @@ pub struct Config {
     pub copy_toast: bool,
     #[serde(default)]
     pub direct_paste: bool,
+    #[serde(default)]
+    pub uppercase_copy_and_paste: bool,
     pub style: Option<StyleConfig>,
     #[serde(default)]
     pub patterns: Vec<PatternConfig>,
@@ -53,6 +55,7 @@ pub struct PatternSettings {
     pub theme: Theme,
     pub copy_toast: bool,
     pub direct_paste: bool,
+    pub uppercase_copy_and_paste: bool,
 }
 
 pub fn parse_config(input: &str) -> Result<Config, toml::de::Error> {
@@ -80,6 +83,7 @@ pub fn compile_pattern_settings(config: &Config) -> Result<PatternSettings> {
         theme: compile_theme(config.style.as_ref())?,
         copy_toast: config.copy_toast,
         direct_paste: config.direct_paste,
+        uppercase_copy_and_paste: config.uppercase_copy_and_paste,
     })
 }
 
@@ -140,6 +144,7 @@ pub fn load_pattern_settings(config_dir: Option<&Path>) -> Result<PatternSetting
             theme: Theme::default(),
             copy_toast: false,
             direct_paste: false,
+            uppercase_copy_and_paste: false,
         });
     };
     let config_path = config_dir.join("config.toml");
@@ -152,6 +157,7 @@ pub fn load_pattern_settings(config_dir: Option<&Path>) -> Result<PatternSetting
                 theme: Theme::default(),
                 copy_toast: false,
                 direct_paste: false,
+                uppercase_copy_and_paste: false,
             });
         }
         Err(err) => {
@@ -284,6 +290,34 @@ regex = "PROJ-[0-9]+"
 
         assert!(config.direct_paste);
         assert!(settings.direct_paste);
+    }
+
+    #[test]
+    fn uppercase_copy_and_paste_defaults_to_false() {
+        let config = parse_config("").unwrap();
+        let settings = compile_pattern_settings(&config).unwrap();
+
+        assert!(!config.uppercase_copy_and_paste);
+        assert!(!settings.uppercase_copy_and_paste);
+        assert!(
+            !load_pattern_settings(None)
+                .unwrap()
+                .uppercase_copy_and_paste
+        );
+    }
+
+    #[test]
+    fn parses_uppercase_copy_and_paste() {
+        for (input, expected) in [
+            ("uppercase_copy_and_paste = true", true),
+            ("uppercase_copy_and_paste = false", false),
+        ] {
+            let config = parse_config(input).unwrap();
+            let settings = compile_pattern_settings(&config).unwrap();
+
+            assert_eq!(config.uppercase_copy_and_paste, expected);
+            assert_eq!(settings.uppercase_copy_and_paste, expected);
+        }
     }
 
     #[test]

@@ -57,6 +57,7 @@ fn run() -> Result<()> {
     let pattern_settings = load_pattern_settings(config_dir.as_deref().map(Path::new))?;
     let copy_toast = pattern_settings.copy_toast;
     let direct_paste = pattern_settings.direct_paste;
+    let uppercase_copy_and_paste = pattern_settings.uppercase_copy_and_paste;
     let custom_pattern_count = pattern_settings.custom_patterns.len();
     let enabled_builtin_pattern_count = pattern_settings
         .enabled_builtin_patterns
@@ -73,6 +74,7 @@ fn run() -> Result<()> {
         }
         None => App::from_text_with_theme(&text, &matcher, pattern_settings.theme),
     };
+    app.uppercase_copy_and_paste = uppercase_copy_and_paste;
     log_state(&format!(
         "start pane_id={pane_id} lines={} targets={} pane_width={pane_width:?} custom_patterns={custom_pattern_count} enabled_builtin_patterns={enabled_builtin_pattern_count}",
         app.lines.len(),
@@ -121,8 +123,7 @@ fn run() -> Result<()> {
             false,
         )?,
         Outcome::CopyAndPaste(text) => {
-            copy_to_clipboard(&text)?;
-            client.send_text(&pane_id, &text)?;
+            copy_and_paste_text(&mut client, &pane_id, &text, copy_toast)?
         }
         Outcome::CopyMultiple(text) => {
             deliver_text(&mut client, &pane_id, &text, direct_paste, copy_toast, true)?
@@ -148,16 +149,31 @@ fn deliver_text(
         };
         client.send_text(pane_id, &direct_text)?;
     } else {
-        copy_to_clipboard(text)?;
-        if copy_toast {
-            match client.show_notification(&copy_notification_title(text)) {
-                Ok(result) if !result.shown => {
-                    log_state(&format!("notification_not_shown reason={}", result.reason));
-                }
-                Ok(_) => {}
-                Err(err) => {
-                    log_state(&format!("notification_error: {err:#}"));
-                }
+        copy_text(client, text, copy_toast)?;
+    }
+    Ok(())
+}
+
+fn copy_and_paste_text(
+    client: &mut SocketClient,
+    pane_id: &str,
+    text: &str,
+    copy_toast: bool,
+) -> Result<()> {
+    copy_text(client, text, copy_toast)?;
+    client.send_text(pane_id, text)
+}
+
+fn copy_text(client: &mut SocketClient, text: &str, copy_toast: bool) -> Result<()> {
+    copy_to_clipboard(text)?;
+    if copy_toast {
+        match client.show_notification(&copy_notification_title(text)) {
+            Ok(result) if !result.shown => {
+                log_state(&format!("notification_not_shown reason={}", result.reason));
+            }
+            Ok(_) => {}
+            Err(err) => {
+                log_state(&format!("notification_error: {err:#}"));
             }
         }
     }
@@ -317,6 +333,84 @@ mod tests {
         .unwrap();
         handle.join().unwrap();
         let _ = std::fs::remove_file(socket_path);
+    }
+
+    fn record_herdr_calls(
+        socket_path: &std::path::Path,
+        calls: usize,
+    ) -> std::thread::JoinHandle<Vec<serde_json::Value>> {
+        let listener = UnixListener::bind(socket_path).unwrap();
+        std::thread::spawn(move || {
+            let (_probe_stream, _) = listener.accept().unwrap();
+            (0..calls)
+                .map(|_| {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    let mut request = String::new();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    reader.read_line(&mut request).unwrap();
+                    let json: serde_json::Value = serde_json::from_str(&request).unwrap();
+                    let result = match json["method"].as_str().unwrap() {
+                        "notification.show" => {
+                            r#"{"type":"notification_show","shown":true,"reason":"shown"}"#
+                        }
+                        _ => r#"{"type":"pane_send_text"}"#,
+                    };
+                    stream
+                        .write_all(
+                            format!(
+                                r#"{{"id":"{}","result":{result}}}"#,
+                                json["id"].as_str().unwrap()
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+                    stream.write_all(b"\n").unwrap();
+                    json
+                })
+                .collect()
+        })
+    }
+
+    fn unique_socket_path() -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_path = std::path::PathBuf::from(format!("/tmp/htf-{unique}.sock"));
+        let _ = std::fs::remove_file(&socket_path);
+        socket_path
+    }
+
+    #[test]
+    fn copy_and_paste_shows_copy_toast_when_enabled() {
+        let socket_path = unique_socket_path();
+        let handle = record_herdr_calls(&socket_path, 2);
+
+        let mut client = SocketClient::connect(&socket_path).unwrap();
+        copy_and_paste_text(&mut client, "pane-1", "README.md", true).unwrap();
+        let calls = handle.join().unwrap();
+        let _ = std::fs::remove_file(socket_path);
+
+        assert_eq!(calls[0]["method"], "notification.show");
+        assert_eq!(calls[0]["params"]["title"], "Copied: README.md");
+        assert_eq!(calls[1]["method"], "pane.send_text");
+        assert_eq!(calls[1]["params"]["pane_id"], "pane-1");
+        assert_eq!(calls[1]["params"]["text"], "README.md");
+    }
+
+    #[test]
+    fn copy_and_paste_skips_copy_toast_when_disabled() {
+        let socket_path = unique_socket_path();
+        let handle = record_herdr_calls(&socket_path, 1);
+
+        let mut client = SocketClient::connect(&socket_path).unwrap();
+        copy_and_paste_text(&mut client, "pane-1", "README.md", false).unwrap();
+        let calls = handle.join().unwrap();
+        let _ = std::fs::remove_file(socket_path);
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["method"], "pane.send_text");
+        assert_eq!(calls[0]["params"]["text"], "README.md");
     }
 
     #[test]

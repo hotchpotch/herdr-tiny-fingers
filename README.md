@@ -18,8 +18,8 @@ https://github.com/user-attachments/assets/b8e78007-4dda-45f3-ab40-ca82647c7614
 - Keeps text and hints in the original pane region when the tab is split.
 - Copies selected text to the clipboard, or sends it directly to the focused
   pane when direct paste is enabled.
-- Copies and also pastes into the focused pane when the last hint key is
-  uppercase, like tmux-fingers.
+- Can copy and also paste into the focused pane when the last hint key is
+  uppercase, like tmux-fingers. This is opt-in.
 - Supports multi-select with `Tab`: enter multi mode, select hints, then press
   `Tab` again to copy selections joined by newlines. When `direct_paste` is
   enabled, multi-select values are joined with spaces instead.
@@ -85,6 +85,23 @@ with spaces so they do not submit the preceding values to the target shell.
 A custom pattern can produce a multiline single selection. Its line breaks are
 sent literally, so avoid multiline custom matches with direct paste when the
 target pane may interpret a line break as Enter.
+
+## Uppercase Copy and Paste
+
+Uppercase copy and paste is disabled by default. Set
+`uppercase_copy_and_paste = true` in the plugin config to make an uppercase
+final hint key copy the match and also send it to the original focused pane,
+like tmux-fingers. Lowercase hint keys keep their normal behavior.
+
+- `copy_toast` applies to the copy.
+- With `direct_paste = true`, lowercase keys only paste and uppercase keys copy
+  and paste.
+- In multi-select mode, uppercase keys only select hints.
+
+The plugin sends the text the same way as [Direct Paste](#direct-paste), so the
+same risk applies. A line break in the match acts as Enter in a shell. For
+example, if a custom pattern matches `echo hello` and the line break after it,
+the shell runs `echo hello` before you press Enter.
 
 ## Copy Toast
 
@@ -159,6 +176,7 @@ herdr plugin config-dir hotchpotch.herdr-tiny-fingers
 # $HERDR_PLUGIN_CONFIG_DIR/config.toml
 copy_toast = false
 direct_paste = false
+uppercase_copy_and_paste = false
 
 enabled_builtin_patterns = ["url", "sha", "git-status", "git-status-branch"]
 
